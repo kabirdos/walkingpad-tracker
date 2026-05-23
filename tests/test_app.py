@@ -30,6 +30,15 @@ def make_client(tmp_path, connected=True):
     return TestClient(create_app(state)), state, pad
 
 
+def test_dashboard_served(tmp_path):
+    client, state, pad = make_client(tmp_path)
+    r = client.get("/")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "Walking" in r.text
+    assert "/control/speed" in r.text  # the dashboard wires up controls
+
+
 def test_status_empty(tmp_path):
     client, state, pad = make_client(tmp_path)
     body = client.get("/status").json()

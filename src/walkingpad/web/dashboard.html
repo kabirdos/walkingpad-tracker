@@ -1,0 +1,873 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WalkingPad · Telemetry</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <style>
+      :root {
+        --bg: #08090c;
+        --panel: #0f1217;
+        --panel-2: #131822;
+        --ink: #e9edf4;
+        --muted: #707a89;
+        --faint: rgba(255, 255, 255, 0.06);
+        --line: rgba(255, 255, 255, 0.08);
+        --signal: #c0fb3a;
+        --signal-soft: rgba(192, 251, 58, 0.14);
+        --ember: #ff5b4c;
+        --amber: #ffb13b;
+        --radius: 16px;
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+        --sans: "Space Grotesk", system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        font-family: var(--sans);
+        background: var(--bg);
+        color: var(--ink);
+        -webkit-font-smoothing: antialiased;
+        line-height: 1.4;
+        position: relative;
+        overflow-x: hidden;
+      }
+
+      /* Atmosphere: oscilloscope grid + radial signal glow + vignette */
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(var(--faint) 1px, transparent 1px),
+          linear-gradient(90deg, var(--faint) 1px, transparent 1px);
+        background-size: 44px 44px;
+        mask-image: radial-gradient(circle at 30% 0%, #000 0%, transparent 78%);
+        opacity: 0.7;
+      }
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        background:
+          radial-gradient(
+            900px 500px at 28% -8%,
+            var(--signal-soft),
+            transparent 60%
+          ),
+          radial-gradient(
+            700px 600px at 100% 100%,
+            rgba(60, 90, 160, 0.1),
+            transparent 55%
+          );
+      }
+
+      .wrap {
+        position: relative;
+        z-index: 1;
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 34px 28px 70px;
+      }
+
+      /* ---- Header ---- */
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 30px;
+        animation: rise 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+      .brand h1 {
+        font-size: 15px;
+        font-weight: 700;
+        letter-spacing: 0.42em;
+        text-transform: uppercase;
+      }
+      .brand .tick {
+        color: var(--signal);
+      }
+      .brand small {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        letter-spacing: 0.18em;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        font-family: var(--mono);
+        font-size: 11.5px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 8px 15px;
+        background: rgba(255, 255, 255, 0.015);
+      }
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .status.online {
+        color: var(--signal);
+        border-color: rgba(192, 251, 58, 0.3);
+      }
+      .status.online .dot {
+        background: var(--signal);
+        box-shadow: 0 0 0 0 var(--signal);
+        animation: pulse 2s infinite;
+      }
+
+      /* ---- Layout ---- */
+      .grid {
+        display: grid;
+        grid-template-columns: 1.45fr 1fr;
+        gap: 18px;
+      }
+      .panel {
+        background: linear-gradient(180deg, var(--panel-2), var(--panel));
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        padding: 22px;
+        animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      }
+      .panel.delay1 {
+        animation-delay: 0.06s;
+      }
+      .panel.delay2 {
+        animation-delay: 0.12s;
+      }
+      .panel.delay3 {
+        animation-delay: 0.18s;
+      }
+      .panel.delay4 {
+        animation-delay: 0.24s;
+      }
+
+      .label {
+        font-family: var(--mono);
+        font-size: 10.5px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .label::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: var(--line);
+      }
+
+      /* ---- Cockpit / live tile ---- */
+      .cockpit {
+        display: flex;
+        flex-direction: column;
+        min-height: 340px;
+        position: relative;
+        overflow: hidden;
+      }
+      .readout {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+      }
+      .readout .big {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: clamp(76px, 11vw, 132px);
+        line-height: 0.82;
+        letter-spacing: -0.04em;
+        font-variant-numeric: tabular-nums;
+        color: var(--ink);
+        transition:
+          color 0.4s ease,
+          text-shadow 0.4s ease;
+      }
+      .readout .unit {
+        font-family: var(--mono);
+        font-size: 15px;
+        color: var(--muted);
+        padding-bottom: 12px;
+        letter-spacing: 0.08em;
+      }
+      .state-tag {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 14px;
+      }
+      .cockpit.moving .big {
+        color: var(--signal);
+        text-shadow: 0 0 38px rgba(192, 251, 58, 0.45);
+      }
+      .cockpit.moving .state-tag {
+        color: var(--signal);
+      }
+
+      .sub {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        margin-top: auto;
+        padding-top: 22px;
+      }
+      .sub .cell .v {
+        font-family: var(--mono);
+        font-size: 23px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+      }
+      .sub .cell .k {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      /* equalizer that animates when moving */
+      .eq {
+        position: absolute;
+        right: 22px;
+        top: 22px;
+        display: flex;
+        gap: 4px;
+        height: 34px;
+        align-items: flex-end;
+        opacity: 0.25;
+      }
+      .eq span {
+        width: 4px;
+        height: 30%;
+        background: var(--muted);
+        border-radius: 2px;
+      }
+      .cockpit.moving .eq {
+        opacity: 1;
+      }
+      .cockpit.moving .eq span {
+        background: var(--signal);
+        animation: eq 0.9s ease-in-out infinite;
+      }
+      .cockpit.moving .eq span:nth-child(2) {
+        animation-delay: 0.12s;
+      }
+      .cockpit.moving .eq span:nth-child(3) {
+        animation-delay: 0.24s;
+      }
+      .cockpit.moving .eq span:nth-child(4) {
+        animation-delay: 0.36s;
+      }
+      .cockpit.moving .eq span:nth-child(5) {
+        animation-delay: 0.48s;
+      }
+
+      /* ---- Controls ---- */
+      .controls {
+        margin-top: 20px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }
+      .btn-row {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      button {
+        font-family: var(--sans);
+        font-weight: 600;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--ink);
+        padding: 13px 18px;
+        border-radius: 11px;
+        cursor: pointer;
+        transition: all 0.16s ease;
+        flex: 1;
+      }
+      button:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.07);
+        transform: translateY(-1px);
+      }
+      button:active:not(:disabled) {
+        transform: translateY(0);
+      }
+      button:disabled {
+        opacity: 0.32;
+        cursor: not-allowed;
+      }
+      button.go {
+        border-color: rgba(192, 251, 58, 0.4);
+        color: var(--signal);
+        background: rgba(192, 251, 58, 0.08);
+      }
+      button.go:hover:not(:disabled) {
+        background: rgba(192, 251, 58, 0.16);
+      }
+      button.halt {
+        border-color: rgba(255, 91, 76, 0.4);
+        color: var(--ember);
+        background: rgba(255, 91, 76, 0.07);
+      }
+      button.halt:hover:not(:disabled) {
+        background: rgba(255, 91, 76, 0.15);
+      }
+
+      .speeds {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .speeds .preset {
+        flex: none;
+        padding: 10px 13px;
+        font-family: var(--mono);
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+      .speeds .preset.sel {
+        border-color: var(--signal);
+        color: var(--signal);
+      }
+      .speeds .spacer {
+        flex: 1;
+      }
+
+      /* ---- Stat tiles (today) ---- */
+      .stats {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      .stat {
+        background: rgba(255, 255, 255, 0.02);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px;
+      }
+      .stat .v {
+        font-family: var(--mono);
+        font-weight: 700;
+        font-size: 30px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.02em;
+      }
+      .stat .v .u {
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 400;
+        margin-left: 4px;
+      }
+      .stat .k {
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 7px;
+      }
+      .stat.streak .v {
+        color: var(--amber);
+      }
+
+      /* ---- Trends ---- */
+      .trend-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .toggles {
+        display: flex;
+        gap: 6px;
+      }
+      .toggles .t {
+        font-family: var(--mono);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        cursor: pointer;
+        padding: 6px 11px;
+        border-radius: 8px;
+        border: 1px solid transparent;
+        transition: all 0.15s;
+      }
+      .toggles .t:hover {
+        color: var(--ink);
+      }
+      .toggles .t.sel {
+        color: var(--signal);
+        border-color: rgba(192, 251, 58, 0.3);
+        background: rgba(192, 251, 58, 0.06);
+      }
+      .chart-box {
+        height: 230px;
+        margin-top: 14px;
+      }
+
+      /* ---- Sessions ---- */
+      .sessions .row {
+        display: grid;
+        grid-template-columns: auto 1fr auto auto;
+        gap: 14px;
+        align-items: center;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--line);
+        font-family: var(--mono);
+        font-size: 13px;
+      }
+      .sessions .row:last-child {
+        border-bottom: none;
+      }
+      .sessions .row .time {
+        color: var(--muted);
+      }
+      .sessions .row .dist {
+        font-weight: 700;
+      }
+      .sessions .row .meta {
+        color: var(--muted);
+        font-size: 11.5px;
+        text-align: right;
+      }
+      .sessions .empty {
+        font-family: var(--mono);
+        font-size: 12.5px;
+        color: var(--muted);
+        padding: 18px 0;
+        text-align: center;
+      }
+
+      .full {
+        grid-column: 1 / -1;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(14px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes pulse {
+        0% {
+          box-shadow: 0 0 0 0 rgba(192, 251, 58, 0.5);
+        }
+        70% {
+          box-shadow: 0 0 0 7px rgba(192, 251, 58, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(192, 251, 58, 0);
+        }
+      }
+      @keyframes eq {
+        0%,
+        100% {
+          height: 20%;
+        }
+        50% {
+          height: 100%;
+        }
+      }
+
+      @media (max-width: 860px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .wrap {
+          padding: 24px 16px 50px;
+        }
+        .brand small {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="brand">
+          <h1>Walking<span class="tick">·</span>Pad</h1>
+          <small id="today-date">—</small>
+        </div>
+        <div class="status" id="status-pill">
+          <span class="dot"></span><span id="status-text">connecting</span>
+        </div>
+      </header>
+
+      <div class="grid">
+        <!-- Cockpit -->
+        <section class="panel cockpit delay1" id="cockpit">
+          <div class="label">Live</div>
+          <div class="eq">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="readout">
+            <div class="big" id="live-speed">0.0</div>
+            <div class="unit">km/h</div>
+          </div>
+          <div class="state-tag" id="state-tag">standby</div>
+
+          <div class="sub">
+            <div class="cell">
+              <div class="v" id="live-dist">0.00</div>
+              <div class="k">km</div>
+            </div>
+            <div class="cell">
+              <div class="v" id="live-steps">0</div>
+              <div class="k">steps</div>
+            </div>
+            <div class="cell">
+              <div class="v" id="live-time">0:00</div>
+              <div class="k">elapsed</div>
+            </div>
+          </div>
+
+          <div class="controls">
+            <div class="btn-row">
+              <button class="go" id="btn-start">Start</button>
+              <button class="halt" id="btn-stop">Stop</button>
+            </div>
+            <div class="speeds" id="speeds">
+              <span class="label" style="margin: 0 8px 0 0; border: none"
+                >Speed</span
+              >
+              <button class="preset" data-kmh="2">2.0</button>
+              <button class="preset" data-kmh="3">3.0</button>
+              <button class="preset" data-kmh="4">4.0</button>
+              <button class="preset" data-kmh="5">5.0</button>
+              <button class="preset" data-kmh="6">6.0</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Today -->
+        <section class="panel delay2">
+          <div class="label">Today</div>
+          <div class="stats">
+            <div class="stat">
+              <div class="v" id="t-dist">0.00<span class="u">km</span></div>
+              <div class="k">distance</div>
+            </div>
+            <div class="stat">
+              <div class="v" id="t-steps">0</div>
+              <div class="k">steps</div>
+            </div>
+            <div class="stat">
+              <div class="v" id="t-mins">0<span class="u">min</span></div>
+              <div class="k">active</div>
+            </div>
+            <div class="stat streak">
+              <div class="v" id="t-streak">0<span class="u">d</span></div>
+              <div class="k">streak</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Trends -->
+        <section class="panel delay3 full">
+          <div class="trend-head">
+            <div class="label" style="margin-bottom: 0">Trends</div>
+            <div class="toggles">
+              <span class="t metric sel" data-metric="distance">Distance</span>
+              <span class="t metric" data-metric="steps">Steps</span>
+              <span style="width: 14px"></span>
+              <span class="t range sel" data-range="week">7d</span>
+              <span class="t range" data-range="month">30d</span>
+            </div>
+          </div>
+          <div class="chart-box"><canvas id="chart"></canvas></div>
+        </section>
+
+        <!-- Sessions -->
+        <section class="panel delay4 full sessions">
+          <div class="label">Today's sessions</div>
+          <div id="session-list">
+            <div class="empty">No sessions yet today.</div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      let connected = false;
+      let curMetric = "distance";
+      let curRange = "week";
+      let chart;
+
+      const fmtInt = (n) => Math.round(n).toLocaleString("en-US");
+      const fmtKm = (m) => (m / 1000).toFixed(2);
+      function fmtClock(s) {
+        s = Math.max(0, Math.round(s));
+        const m = Math.floor(s / 60),
+          ss = s % 60;
+        return m + ":" + String(ss).padStart(2, "0");
+      }
+
+      async function api(path, opts) {
+        const r = await fetch(path, opts);
+        if (!r.ok) throw new Error(path + " -> " + r.status);
+        return r.json();
+      }
+
+      async function pollStatus() {
+        try {
+          const s = await api("/status");
+          connected = !!s.connected;
+          const moving = (s.speed_kmh || 0) > 0;
+
+          $("live-speed").textContent = (s.speed_kmh || 0).toFixed(1);
+          $("live-dist").textContent = fmtKm(s.distance_m || 0);
+          $("live-steps").textContent = fmtInt(s.steps || 0);
+          $("live-time").textContent = fmtClock(s.elapsed_s || 0);
+
+          $("cockpit").classList.toggle("moving", moving);
+          $("state-tag").textContent = !connected
+            ? "offline"
+            : moving
+              ? "walking"
+              : "standby";
+
+          const pill = $("status-pill");
+          pill.classList.toggle("online", connected);
+          $("status-text").textContent = connected ? "connected" : "offline";
+
+          setControlsEnabled(connected);
+        } catch (e) {
+          connected = false;
+          $("status-pill").classList.remove("online");
+          $("status-text").textContent = "offline";
+          $("state-tag").textContent = "offline";
+          setControlsEnabled(false);
+        }
+      }
+
+      function setControlsEnabled(on) {
+        $("btn-start").disabled = !on;
+        $("btn-stop").disabled = !on;
+        document
+          .querySelectorAll("#speeds .preset")
+          .forEach((b) => (b.disabled = !on));
+      }
+
+      async function loadToday() {
+        try {
+          const t = await api("/today");
+          $("today-date").textContent = t.date || "";
+          $("t-dist").innerHTML =
+            fmtKm(t.distance_m || 0) + '<span class="u">km</span>';
+          $("t-steps").textContent = fmtInt(t.steps || 0);
+          $("t-mins").innerHTML =
+            Math.round((t.duration_s || 0) / 60) + '<span class="u">min</span>';
+          $("t-streak").innerHTML =
+            (t.streak || 0) + '<span class="u">d</span>';
+        } catch (e) {}
+      }
+
+      async function loadSessions() {
+        try {
+          const data = await api("/sessions");
+          const list = $("session-list");
+          if (!data.sessions || !data.sessions.length) {
+            list.innerHTML = '<div class="empty">No sessions yet today.</div>';
+            return;
+          }
+          list.innerHTML = data.sessions
+            .map((s) => {
+              const t = new Date(s.start_ts * 1000).toLocaleTimeString(
+                "en-US",
+                { hour: "2-digit", minute: "2-digit" },
+              );
+              return `<div class="row">
+        <span class="time">${t}</span>
+        <span class="dist">${fmtKm(s.distance_m)} km</span>
+        <span class="meta">${fmtInt(s.steps)} steps · ${Math.round(s.duration_s / 60)} min</span>
+        <span class="meta">max ${(s.max_speed_kmh || 0).toFixed(1)}</span>
+      </div>`;
+            })
+            .join("");
+        } catch (e) {}
+      }
+
+      async function loadChart() {
+        try {
+          const data = await api("/history?range=" + curRange);
+          const days = data.days || [];
+          const labels = days.map((d) => d.day.slice(5));
+          const values = days.map((d) =>
+            curMetric === "distance" ? d.distance_m / 1000 : d.steps,
+          );
+          const ctx = $("chart").getContext("2d");
+          const grad = ctx.createLinearGradient(0, 0, 0, 230);
+          grad.addColorStop(0, "rgba(192,251,58,0.9)");
+          grad.addColorStop(1, "rgba(192,251,58,0.18)");
+
+          if (chart) chart.destroy();
+          chart = new Chart(ctx, {
+            type: "bar",
+            data: {
+              labels,
+              datasets: [
+                {
+                  data: values,
+                  backgroundColor: grad,
+                  borderRadius: 5,
+                  maxBarThickness: 38,
+                },
+              ],
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  backgroundColor: "#0f1217",
+                  borderColor: "rgba(192,251,58,0.3)",
+                  borderWidth: 1,
+                  titleFont: { family: "JetBrains Mono" },
+                  bodyFont: { family: "JetBrains Mono" },
+                  callbacks: {
+                    label: (c) =>
+                      curMetric === "distance"
+                        ? c.parsed.y.toFixed(2) + " km"
+                        : fmtInt(c.parsed.y) + " steps",
+                  },
+                },
+              },
+              scales: {
+                x: {
+                  grid: { display: false },
+                  ticks: {
+                    color: "#707a89",
+                    font: { family: "JetBrains Mono", size: 10 },
+                  },
+                },
+                y: {
+                  grid: { color: "rgba(255,255,255,0.05)" },
+                  ticks: {
+                    color: "#707a89",
+                    font: { family: "JetBrains Mono", size: 10 },
+                  },
+                  beginAtZero: true,
+                },
+              },
+            },
+          });
+        } catch (e) {}
+      }
+
+      // Controls
+      $("btn-start").onclick = () => control("/control/start");
+      $("btn-stop").onclick = () => control("/control/stop");
+      document.querySelectorAll("#speeds .preset").forEach((b) => {
+        b.onclick = async () => {
+          await control("/control/speed", { kmh: parseFloat(b.dataset.kmh) });
+          document
+            .querySelectorAll("#speeds .preset")
+            .forEach((x) => x.classList.remove("sel"));
+          b.classList.add("sel");
+        };
+      });
+      async function control(path, body) {
+        try {
+          await api(path, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: body ? JSON.stringify(body) : undefined,
+          });
+          pollStatus();
+        } catch (e) {}
+      }
+
+      // Toggles
+      document.querySelectorAll(".toggles .metric").forEach(
+        (t) =>
+          (t.onclick = () => {
+            document
+              .querySelectorAll(".toggles .metric")
+              .forEach((x) => x.classList.remove("sel"));
+            t.classList.add("sel");
+            curMetric = t.dataset.metric;
+            loadChart();
+          }),
+      );
+      document.querySelectorAll(".toggles .range").forEach(
+        (t) =>
+          (t.onclick = () => {
+            document
+              .querySelectorAll(".toggles .range")
+              .forEach((x) => x.classList.remove("sel"));
+            t.classList.add("sel");
+            curRange = t.dataset.range;
+            loadChart();
+          }),
+      );
+
+      // Boot + loops
+      pollStatus();
+      loadToday();
+      loadSessions();
+      loadChart();
+      setInterval(pollStatus, 1000);
+      setInterval(() => {
+        loadToday();
+        loadSessions();
+      }, 15000);
+      setInterval(loadChart, 60000);
+    </script>
+  </body>
+</html>

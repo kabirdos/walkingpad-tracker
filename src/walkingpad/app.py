@@ -1,7 +1,11 @@
 import datetime as dt
+import os
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
 
 
 class SpeedRequest(BaseModel):
@@ -15,6 +19,10 @@ def _today_str():
 def create_app(state):
     """Build the FastAPI app over a DaemonState (bind to 127.0.0.1 when served)."""
     app = FastAPI(title="WalkingPad")
+
+    @app.get("/")
+    def dashboard():
+        return FileResponse(os.path.join(WEB_DIR, "dashboard.html"))
 
     @app.get("/status")
     def get_status():
