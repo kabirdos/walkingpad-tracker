@@ -1,0 +1,24 @@
+[project]
+name = "walkingpad-tracker"
+version = "0.1.0"
+description = "Self-hosted WalkingPad P1 capture, control, and Apple Health sync"
+requires-python = ">=3.11"
+dependencies = [
+    "ph4-walkingpad>=1.0.0",
+    "bleak>=0.21",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/walkingpad"]
