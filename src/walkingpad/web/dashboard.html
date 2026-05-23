@@ -584,11 +584,12 @@
               <span class="label" style="margin: 0 8px 0 0; border: none"
                 >Speed</span
               >
-              <button class="preset" data-kmh="2">2.0</button>
-              <button class="preset" data-kmh="3">3.0</button>
-              <button class="preset" data-kmh="4">4.0</button>
-              <button class="preset" data-kmh="5">5.0</button>
-              <button class="preset" data-kmh="6">6.0</button>
+              <button class="preset nudge" data-delta="-0.1">&minus;0.1</button>
+              <button class="preset" data-kmh="1.0">1.0</button>
+              <button class="preset" data-kmh="1.5">1.5</button>
+              <button class="preset" data-kmh="2.0">2.0</button>
+              <button class="preset" data-kmh="2.5">2.5</button>
+              <button class="preset nudge" data-delta="0.1">+0.1</button>
             </div>
           </div>
         </section>
@@ -813,13 +814,27 @@
       // Controls
       $("btn-start").onclick = () => control("/control/start");
       $("btn-stop").onclick = () => control("/control/stop");
+      let setSpeed = 1.5; // last speed we asked the belt for
+      function applySpeed(kmh) {
+        setSpeed = Math.min(6, Math.max(0.5, Math.round(kmh * 10) / 10));
+        control("/control/speed", { kmh: setSpeed });
+        document.querySelectorAll("#speeds .preset").forEach((x) => {
+          x.classList.toggle(
+            "sel",
+            !!(x.dataset.kmh && parseFloat(x.dataset.kmh) === setSpeed),
+          );
+        });
+      }
       document.querySelectorAll("#speeds .preset").forEach((b) => {
-        b.onclick = async () => {
-          await control("/control/speed", { kmh: parseFloat(b.dataset.kmh) });
-          document
-            .querySelectorAll("#speeds .preset")
-            .forEach((x) => x.classList.remove("sel"));
-          b.classList.add("sel");
+        b.onclick = () => {
+          if (b.dataset.delta) {
+            const live = parseFloat($("live-speed").textContent) || 0;
+            applySpeed(
+              (live > 0 ? live : setSpeed) + parseFloat(b.dataset.delta),
+            );
+          } else {
+            applySpeed(parseFloat(b.dataset.kmh));
+          }
         };
       });
       async function control(path, body) {
