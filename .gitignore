@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.uv/
+
+# Local data — never commit captured walk data or live state
+*.db
+*.sqlite
+*.sqlite3
+current.json
+data/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
