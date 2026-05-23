@@ -38,6 +38,20 @@ The daemon auto-reconnects whenever the pad wakes and is in range. **Keep the
 official WalkingPad/KS Fit app closed** — the pad allows only one Bluetooth
 connection, and the daemon owns it.
 
+### Troubleshooting: Bluetooth permission
+
+macOS grants Bluetooth access per-binary (TCC), and a `launchd` agent does **not**
+inherit the grant you gave Terminal. So after first load, the daemon may connect
+to nothing even with the pad on. Check `~/Library/Logs/walkingpad/daemon.err.log`:
+
+- If it shows BLE/permission errors or only ever "retrying", open
+  **System Settings → Privacy & Security → Bluetooth** and enable the entry for
+  the daemon (it may appear as `uv`, `python`, or `walkingpad`). If nothing
+  appears to toggle, run `uv run python -m walkingpad.cli capture` once from
+  Terminal, approve the Bluetooth prompt, then `launchctl kickstart -k
+gui/$(id -u)/com.walkingpad.daemon`.
+- Confirm the official WalkingPad/KS Fit app is fully closed (single connection).
+
 ### Update / uninstall
 
 ```bash
