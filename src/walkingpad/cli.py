@@ -51,6 +51,7 @@ async def run_serve(db_path, host="127.0.0.1", port=8787, address=None):
 
     from walkingpad.state import DaemonState
     from walkingpad.app import create_app
+    from walkingpad.health_export import write_export
 
     store = Store(db_path)
     recorder = Recorder(store)
@@ -82,8 +83,18 @@ async def run_serve(db_path, host="127.0.0.1", port=8787, address=None):
                 await asyncio.sleep(backoff)
                 backoff = min(30, backoff * 2)
 
+    async def export_loop():
+        # Keep the iCloud Drive summary fresh so the morning Shortcut reads
+        # current data. Atomic write; failures are non-fatal.
+        while True:
+            try:
+                write_export(store)
+            except Exception:
+                pass
+            await asyncio.sleep(120)
+
     print(f"serving API on http://{host}:{port}", flush=True)
-    await asyncio.gather(server.serve(), capture_loop())
+    await asyncio.gather(server.serve(), capture_loop(), export_loop())
 
 
 def cmd_today(db_path):
@@ -133,6 +144,10 @@ def main():
     p_ses = sub.add_parser("sessions", help="list sessions for a date")
     p_ses.add_argument("--date", default=dt.date.today().strftime("%Y-%m-%d"))
 
+    p_exp = sub.add_parser("export", help="write the daily summary for the iPhone Shortcut")
+    p_exp.add_argument("--path", default=None,
+                       help="output path (default: iCloud Drive/WalkingPad/daily.json)")
+
     args = parser.parse_args()
     if args.command == "capture":
         asyncio.run(run_capture(args.db, args.address))
@@ -142,6 +157,11 @@ def main():
         cmd_today(args.db)
     elif args.command == "sessions":
         cmd_sessions(args.db, args.date)
+    elif args.command == "export":
+        from walkingpad.health_export import write_export
+        store = Store(args.db)
+        path = write_export(store, args.path)
+        print(f"wrote {path}")
 
 
 if __name__ == "__main__":
