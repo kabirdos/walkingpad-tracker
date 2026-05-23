@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.walkingpad.menubar</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/uv</string>
+    <string>run</string>
+    <string>--directory</string>
+    <string>/Users/craigdossantos/Coding/walkingpad</string>
+    <string>--extra</string>
+    <string>menubar</string>
+    <string>python</string>
+    <string>-m</string>
+    <string>walkingpad.menubar</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/craigdossantos/Library/Logs/walkingpad/menubar.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/craigdossantos/Library/Logs/walkingpad/menubar.err.log</string>
+</dict>
+</plist>
