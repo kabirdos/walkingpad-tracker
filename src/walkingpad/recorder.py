@@ -1,3 +1,7 @@
+# Observed live on WALKINGPAD P1 (2026-05-23): on stop, the run counter RESETS
+# to 0 in a single tick (0.08 km / 155 steps -> 0 / 0), then idles at zero while
+# still connected. RESET_TOL_M catches the drop and finalizes the session; the
+# trailing zero-ticks never open a new one (validated: today == 1 session).
 RESET_TOL_M = 20  # distance drop (metres) that signals the pad reset its counter
 
 
