@@ -45,6 +45,47 @@ async def run_capture(db_path, address=None):
             backoff = min(30, backoff * 2)
 
 
+async def run_serve(db_path, host="127.0.0.1", port=8787, address=None):
+    """Run the capture loop and the HTTP API together in one asyncio process."""
+    import uvicorn
+
+    from walkingpad.state import DaemonState
+    from walkingpad.app import create_app
+
+    store = Store(db_path)
+    recorder = Recorder(store)
+    client = PadClient()
+    state = DaemonState(store, pad_client=client)
+
+    def on_status(status):
+        state.record_status(status)
+        recorder.handle(status)
+
+    app = create_app(state)
+    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+    server = uvicorn.Server(config)
+
+    async def capture_loop():
+        backoff = 1
+        while True:
+            try:
+                addr = await client.connect(address)
+                state.connected = True
+                print(f"connected to {addr}", flush=True)
+                backoff = 1
+                await client.capture(on_status)
+            except Exception as e:
+                state.connected = False
+                recorder.close()
+                await client.disconnect()
+                print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
+                await asyncio.sleep(backoff)
+                backoff = min(30, backoff * 2)
+
+    print(f"serving API on http://{host}:{port}", flush=True)
+    await asyncio.gather(server.serve(), capture_loop())
+
+
 def cmd_today(db_path):
     store = Store(db_path)
     today = dt.date.today().strftime("%Y-%m-%d")
@@ -81,6 +122,12 @@ def main():
     p_cap.add_argument("--address", default=os.environ.get("WALKINGPAD_ADDRESS"),
                        help="BLE address/UUID (default: auto-discover by name)")
 
+    p_srv = sub.add_parser("serve", help="run capture + local HTTP API together")
+    p_srv.add_argument("--host", default="127.0.0.1")
+    p_srv.add_argument("--port", type=int, default=8787)
+    p_srv.add_argument("--address", default=os.environ.get("WALKINGPAD_ADDRESS"),
+                       help="BLE address/UUID (default: auto-discover by name)")
+
     sub.add_parser("today", help="print today's totals")
 
     p_ses = sub.add_parser("sessions", help="list sessions for a date")
@@ -89,6 +136,8 @@ def main():
     args = parser.parse_args()
     if args.command == "capture":
         asyncio.run(run_capture(args.db, args.address))
+    elif args.command == "serve":
+        asyncio.run(run_serve(args.db, args.host, args.port, args.address))
     elif args.command == "today":
         cmd_today(args.db)
     elif args.command == "sessions":
