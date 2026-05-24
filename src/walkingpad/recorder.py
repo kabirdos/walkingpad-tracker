@@ -55,6 +55,13 @@ class Recorder:
         self._active_id = self.store.create_session(start_ts=status.ts)
         self._max_speed = 0.0
 
+    def resume(self, session_id, distance_m, max_speed_kmh):
+        """Re-attach to an existing session after a reconnect/restart mid-run,
+        so the ongoing walk isn't double-counted as a new session."""
+        self._active_id = session_id
+        self._last_distance_m = distance_m
+        self._max_speed = max_speed_kmh or 0.0
+
     def _close(self):
         self._active_id = None
         self._max_speed = 0.0

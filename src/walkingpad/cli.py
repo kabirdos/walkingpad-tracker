@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import datetime as dt
 import os
+import time
 
 from walkingpad.store import Store
 from walkingpad.recorder import Recorder
@@ -40,7 +41,9 @@ async def run_capture(db_path, address=None):
             backoff = 1
             await client.capture(on_status)
         except Exception as e:
-            recorder.close()
+            # Don't finalize the session on a transient drop — the recorder
+            # closes it only on a real counter reset, so a reconnect mid-walk
+            # continues the same session instead of double-counting.
             await client.disconnect()
             print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
             await asyncio.sleep(backoff)
@@ -59,6 +62,12 @@ async def run_serve(db_path, host="127.0.0.1", port=8787, address=None):
     recorder = Recorder(store)
     client = PadClient()
     state = DaemonState(store, pad_client=client)
+
+    # If the daemon restarted mid-walk, resume the still-open session so the
+    # ongoing run isn't recorded twice.
+    latest = store.get_latest_session()
+    if latest and latest["end_ts"] and (time.time() - latest["end_ts"] < 30):
+        recorder.resume(latest["id"], latest["distance_m"], latest["max_speed_kmh"])
 
     def on_status(status):
         state.record_status(status)
@@ -79,7 +88,8 @@ async def run_serve(db_path, host="127.0.0.1", port=8787, address=None):
                 await client.capture(on_status)
             except Exception as e:
                 state.connected = False
-                recorder.close()
+                # Keep the session open across transient reconnects (see note in
+                # run_capture); the recorder splits sessions only on a real reset.
                 await client.disconnect()
                 print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
                 await asyncio.sleep(backoff)

@@ -49,6 +49,28 @@ def test_no_session_when_idle(tmp_path):
     assert db.get_latest_session() is None
 
 
+def test_resume_continues_session_no_double_count(tmp_path):
+    db = Store(str(tmp_path / "t.db"))
+    base = 1716451200.0
+    # first recorder records a walk up to 200 m
+    r1 = Recorder(db)
+    r1.handle(mk(base + 1, 3.0, 100, 130, 60))
+    r1.handle(mk(base + 2, 3.0, 200, 260, 120))
+    # process "restarts" mid-walk: a fresh recorder resumes the open session
+    sess = db.get_latest_session()
+    r2 = Recorder(db)
+    r2.resume(sess["id"], sess["distance_m"], sess["max_speed_kmh"])
+    # pad keeps counting the SAME run (cumulative grows past 200)
+    r2.handle(mk(base + 3, 3.0, 260, 340, 150))
+    r2.handle(mk(base + 4, 3.0, 320, 420, 180))
+    r2.close()
+    d = dt.datetime.fromtimestamp(base + 1).strftime("%Y-%m-%d")
+    totals = db.daily_totals(d)
+    assert totals["sessions"] == 1       # ONE session, not two
+    assert totals["distance_m"] == 320   # final cumulative, not 200 + 320
+    assert totals["steps"] == 420
+
+
 def test_avg_speed_computed(tmp_path):
     db = Store(str(tmp_path / "t.db"))
     r = Recorder(db)
