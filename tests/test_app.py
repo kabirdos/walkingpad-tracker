@@ -73,6 +73,19 @@ def test_today_and_sessions(tmp_path):
     assert sess["sessions"][0]["steps"] == 1000
 
 
+def test_yesterday_endpoint(tmp_path):
+    client, state, pad = make_client(tmp_path)
+    y = dt.datetime.combine(dt.date.today() - dt.timedelta(days=1), dt.time(9, 0))
+    sid = state.store.create_session(y.timestamp())
+    state.store.update_session(sid, end_ts=y.timestamp() + 600, duration_s=600,
+                               distance_m=1000, steps=1300, avg_speed_kmh=6.0,
+                               max_speed_kmh=6.0)
+    body = client.get("/yesterday").json()
+    assert body["distance_mi"] == 0.621  # 1.0 km
+    assert body["duration_min"] == 10
+    assert body["steps"] == 1300
+
+
 def test_history(tmp_path):
     client, state, pad = make_client(tmp_path)
     body = client.get("/history?range=month").json()

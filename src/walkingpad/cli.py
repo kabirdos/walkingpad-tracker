@@ -50,7 +50,7 @@ async def run_capture(db_path, address=None):
             backoff = min(30, backoff * 2)
 
 
-async def run_serve(db_path, host="127.0.0.1", port=8787, address=None):
+async def run_serve(db_path, host="0.0.0.0", port=8787, address=None):
     """Run the capture loop and the HTTP API together in one asyncio process."""
     import uvicorn
 
@@ -146,7 +146,8 @@ def main():
                        help="BLE address/UUID (default: auto-discover by name)")
 
     p_srv = sub.add_parser("serve", help="run capture + local HTTP API together")
-    p_srv.add_argument("--host", default="127.0.0.1")
+    p_srv.add_argument("--host", default="0.0.0.0",
+                       help="bind address (default 0.0.0.0 so the iPhone can reach it on your LAN)")
     p_srv.add_argument("--port", type=int, default=8787)
     p_srv.add_argument("--address", default=os.environ.get("WALKINGPAD_ADDRESS"),
                        help="BLE address/UUID (default: auto-discover by name)")
