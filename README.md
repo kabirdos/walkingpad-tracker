@@ -5,6 +5,12 @@ replacing the unreliable phone app. Walks are recorded **losslessly** off the pa
 over Bluetooth — hop-offs and the pad's counter resets never erase a session, and
 the daily total is the sum of all sessions.
 
+> **Compatibility:** macOS (uses CoreBluetooth, launchd, and a `rumps` menu-bar
+> app; the Health sync uses an iPhone Shortcut). Works with KingSmith **WalkingPad**
+> belts that speak the `FE00` BLE protocol (P1/A1/R-series and similar) via
+> [`ph4-walkingpad`](https://github.com/ph4r05/ph4-walkingpad). Run `python scan_pad.py`
+> to check what your unit exposes.
+
 ## What it does
 
 - **Capture** — a background daemon holds the BLE connection and logs every walk
@@ -56,10 +62,20 @@ WalkingPad/KS Fit app closed. Grant your terminal Bluetooth permission
 
 ## Deploy (run unattended)
 
-See [`deploy/README.md`](deploy/README.md) — launchd agents for the daemon and
-menubar, plus the one-time iPhone Shortcut for Apple Health.
+```bash
+./deploy/install.sh      # generates + loads the launchd agents from your paths
+```
+
+Then set up the one-time iPhone Shortcut for Apple Health. Full details and
+troubleshooting (incl. the macOS Bluetooth-permission gotcha) are in
+[`deploy/README.md`](deploy/README.md).
 
 ## Stack
 
-Python 3.11+ (run via `uv`), `ph4-walkingpad` + `bleak`, `sqlite3`, FastAPI +
-uvicorn, Chart.js, `rumps`. Design spec and plans live in `docs/superpowers/`.
+Python 3.11+ (run via [`uv`](https://docs.astral.sh/uv/)), `ph4-walkingpad` +
+`bleak`, `sqlite3`, FastAPI + uvicorn, Chart.js, `rumps`. Design spec and plans
+live in `docs/superpowers/`.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).

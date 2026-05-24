@@ -8,21 +8,13 @@ Shortcut that logs walks into Apple Health.
   the iCloud `daily.json` summary.
 - **`com.walkingpad.menubar`** — the menu-bar widget (reads the daemon's API).
 
-> The plists are pre-filled for this machine: `uv` at `/opt/homebrew/bin/uv`,
-> project at `/Users/craigdossantos/Coding/walkingpad`. Edit those paths if they
-> change.
-
 ## 1. Install the launchd agents
 
-```bash
-# one-time: log directory the plists write to
-mkdir -p ~/Library/Logs/walkingpad
+The installer generates the plists from _your_ paths (`uv` location, repo
+directory, `$HOME`) and loads them — nothing machine-specific is committed.
 
-# copy and load
-cp deploy/com.walkingpad.daemon.plist  ~/Library/LaunchAgents/
-cp deploy/com.walkingpad.menubar.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.walkingpad.daemon.plist
-launchctl load ~/Library/LaunchAgents/com.walkingpad.menubar.plist
+```bash
+./deploy/install.sh
 ```
 
 Verify:
@@ -41,15 +33,16 @@ connection, and the daemon owns it.
 ### Troubleshooting: Bluetooth permission
 
 macOS grants Bluetooth access per-binary (TCC), and a `launchd` agent does **not**
-inherit the grant you gave Terminal. So after first load, the daemon may connect
-to nothing even with the pad on. Check `~/Library/Logs/walkingpad/daemon.err.log`:
+inherit the grant you gave Terminal. So after first install, the daemon may
+connect to nothing even with the pad on. Check
+`~/Library/Logs/walkingpad/daemon.err.log`:
 
 - If it shows BLE/permission errors or only ever "retrying", open
   **System Settings → Privacy & Security → Bluetooth** and enable the entry for
   the daemon (it may appear as `uv`, `python`, or `walkingpad`). If nothing
   appears to toggle, run `uv run python -m walkingpad.cli capture` once from
-  Terminal, approve the Bluetooth prompt, then `launchctl kickstart -k
-gui/$(id -u)/com.walkingpad.daemon`.
+  Terminal, approve the Bluetooth prompt, then
+  `launchctl kickstart -k gui/$(id -u)/com.walkingpad.daemon`.
 - Confirm the official WalkingPad/KS Fit app is fully closed (single connection).
 
 ### Update / uninstall
@@ -59,9 +52,7 @@ gui/$(id -u)/com.walkingpad.daemon`.
 launchctl kickstart -k gui/$(id -u)/com.walkingpad.daemon
 
 # remove entirely:
-launchctl unload ~/Library/LaunchAgents/com.walkingpad.daemon.plist
-launchctl unload ~/Library/LaunchAgents/com.walkingpad.menubar.plist
-rm ~/Library/LaunchAgents/com.walkingpad.{daemon,menubar}.plist
+./deploy/uninstall.sh
 ```
 
 ## 2. Apple Health sync (iPhone Shortcut)
