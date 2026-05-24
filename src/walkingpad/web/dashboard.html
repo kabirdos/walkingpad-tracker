@@ -556,14 +556,14 @@
           </div>
           <div class="readout">
             <div class="big" id="live-speed">0.0</div>
-            <div class="unit">km/h</div>
+            <div class="unit">mph</div>
           </div>
           <div class="state-tag" id="state-tag">standby</div>
 
           <div class="sub">
             <div class="cell">
               <div class="v" id="live-dist">0.00</div>
-              <div class="k">km</div>
+              <div class="k">mi</div>
             </div>
             <div class="cell">
               <div class="v" id="live-steps">0</div>
@@ -585,10 +585,10 @@
                 >Speed</span
               >
               <button class="preset nudge" data-delta="-0.1">&minus;0.1</button>
-              <button class="preset" data-kmh="1.0">1.0</button>
-              <button class="preset" data-kmh="1.5">1.5</button>
-              <button class="preset" data-kmh="2.0">2.0</button>
-              <button class="preset" data-kmh="2.5">2.5</button>
+              <button class="preset" data-mph="1.0">1.0</button>
+              <button class="preset" data-mph="1.5">1.5</button>
+              <button class="preset" data-mph="2.0">2.0</button>
+              <button class="preset" data-mph="2.5">2.5</button>
               <button class="preset nudge" data-delta="0.1">+0.1</button>
             </div>
           </div>
@@ -599,7 +599,7 @@
           <div class="label">Today</div>
           <div class="stats">
             <div class="stat">
-              <div class="v" id="t-dist">0.00<span class="u">km</span></div>
+              <div class="v" id="t-dist">0.00<span class="u">mi</span></div>
               <div class="k">distance</div>
             </div>
             <div class="stat">
@@ -649,8 +649,10 @@
       let curRange = "week";
       let chart;
 
+      const MI = 0.621371; // km -> miles, and km/h -> mph
       const fmtInt = (n) => Math.round(n).toLocaleString("en-US");
-      const fmtKm = (m) => (m / 1000).toFixed(2);
+      const fmtMi = (m) => ((m / 1000) * MI).toFixed(2); // metres -> miles
+      const mph = (kmh) => (kmh || 0) * MI;
       function fmtClock(s) {
         s = Math.max(0, Math.round(s));
         const m = Math.floor(s / 60),
@@ -670,8 +672,8 @@
           connected = !!s.connected;
           const moving = (s.speed_kmh || 0) > 0;
 
-          $("live-speed").textContent = (s.speed_kmh || 0).toFixed(1);
-          $("live-dist").textContent = fmtKm(s.distance_m || 0);
+          $("live-speed").textContent = mph(s.speed_kmh).toFixed(1);
+          $("live-dist").textContent = fmtMi(s.distance_m || 0);
           $("live-steps").textContent = fmtInt(s.steps || 0);
           $("live-time").textContent = fmtClock(s.elapsed_s || 0);
 
@@ -709,7 +711,7 @@
           const t = await api("/today");
           $("today-date").textContent = t.date || "";
           $("t-dist").innerHTML =
-            fmtKm(t.distance_m || 0) + '<span class="u">km</span>';
+            fmtMi(t.distance_m || 0) + '<span class="u">mi</span>';
           $("t-steps").textContent = fmtInt(t.steps || 0);
           $("t-mins").innerHTML =
             Math.round((t.duration_s || 0) / 60) + '<span class="u">min</span>';
@@ -734,9 +736,9 @@
               );
               return `<div class="row">
         <span class="time">${t}</span>
-        <span class="dist">${fmtKm(s.distance_m)} km</span>
+        <span class="dist">${fmtMi(s.distance_m)} mi</span>
         <span class="meta">${fmtInt(s.steps)} steps · ${Math.round(s.duration_s / 60)} min</span>
-        <span class="meta">max ${(s.max_speed_kmh || 0).toFixed(1)}</span>
+        <span class="meta">max ${mph(s.max_speed_kmh).toFixed(1)}</span>
       </div>`;
             })
             .join("");
@@ -749,7 +751,7 @@
           const days = data.days || [];
           const labels = days.map((d) => d.day.slice(5));
           const values = days.map((d) =>
-            curMetric === "distance" ? d.distance_m / 1000 : d.steps,
+            curMetric === "distance" ? (d.distance_m / 1000) * MI : d.steps,
           );
           const ctx = $("chart").getContext("2d");
           const grad = ctx.createLinearGradient(0, 0, 0, 230);
@@ -784,7 +786,7 @@
                   callbacks: {
                     label: (c) =>
                       curMetric === "distance"
-                        ? c.parsed.y.toFixed(2) + " km"
+                        ? c.parsed.y.toFixed(2) + " mi"
                         : fmtInt(c.parsed.y) + " steps",
                   },
                 },
@@ -814,26 +816,26 @@
       // Controls
       $("btn-start").onclick = () => control("/control/start");
       $("btn-stop").onclick = () => control("/control/stop");
-      let setSpeed = 1.5; // last speed we asked the belt for
-      function applySpeed(kmh) {
-        setSpeed = Math.min(6, Math.max(0.5, Math.round(kmh * 10) / 10));
-        control("/control/speed", { kmh: setSpeed });
+      let setMph = 1.5; // last speed we asked for, in mph
+      function applySpeed(mphVal) {
+        setMph = Math.min(3.7, Math.max(0.4, Math.round(mphVal * 10) / 10));
+        control("/control/speed", { kmh: setMph / MI }); // pad speaks km/h
         document.querySelectorAll("#speeds .preset").forEach((x) => {
           x.classList.toggle(
             "sel",
-            !!(x.dataset.kmh && parseFloat(x.dataset.kmh) === setSpeed),
+            !!(x.dataset.mph && parseFloat(x.dataset.mph) === setMph),
           );
         });
       }
       document.querySelectorAll("#speeds .preset").forEach((b) => {
         b.onclick = () => {
           if (b.dataset.delta) {
-            const live = parseFloat($("live-speed").textContent) || 0;
+            const live = parseFloat($("live-speed").textContent) || 0; // mph
             applySpeed(
-              (live > 0 ? live : setSpeed) + parseFloat(b.dataset.delta),
+              (live > 0 ? live : setMph) + parseFloat(b.dataset.delta),
             );
           } else {
-            applySpeed(parseFloat(b.dataset.kmh));
+            applySpeed(parseFloat(b.dataset.mph));
           }
         };
       });

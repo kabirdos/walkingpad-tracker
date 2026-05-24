@@ -7,6 +7,8 @@ from walkingpad.store import Store
 from walkingpad.recorder import Recorder
 from walkingpad.pad_client import PadClient
 
+MI = 0.621371  # km -> miles, km/h -> mph
+
 
 def default_db_path():
     base = os.path.expanduser("~/.local/share/walkingpad")
@@ -15,8 +17,8 @@ def default_db_path():
 
 
 def _print_status(status):
-    print(f"  speed={status.speed_kmh:>4.1f} km/h  "
-          f"dist={status.distance_m / 1000:>5.2f} km  "
+    print(f"  speed={status.speed_kmh * MI:>4.1f} mph  "
+          f"dist={status.distance_m / 1000 * MI:>5.2f} mi  "
           f"steps={status.steps:>5}  time={status.elapsed_s // 60}m",
           flush=True)
 
@@ -101,7 +103,7 @@ def cmd_today(db_path):
     store = Store(db_path)
     today = dt.date.today().strftime("%Y-%m-%d")
     t = store.daily_totals(today)
-    print(f"{today}: {t['distance_m'] / 1000:.2f} km, {t['steps']} steps, "
+    print(f"{today}: {t['distance_m'] / 1000 * MI:.2f} mi, {t['steps']} steps, "
           f"{t['duration_s'] // 60} min, {t['sessions']} session(s)")
 
 
@@ -119,9 +121,9 @@ def cmd_sessions(db_path, date_str):
         return
     for r in rows:
         start = dt.datetime.fromtimestamp(r["start_ts"]).strftime("%H:%M")
-        print(f"  #{r['id']} {start}  {r['distance_m'] / 1000:.2f} km  "
+        print(f"  #{r['id']} {start}  {r['distance_m'] / 1000 * MI:.2f} mi  "
               f"{r['steps']} steps  {r['duration_s'] // 60} min  "
-              f"max {r['max_speed_kmh']:.1f} km/h")
+              f"max {r['max_speed_kmh'] * MI:.1f} mph")
 
 
 def main():

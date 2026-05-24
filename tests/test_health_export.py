@@ -21,6 +21,7 @@ def test_build_export(tmp_path):
     row = out[0]
     assert row["date"] == today.strftime("%Y-%m-%d")
     assert row["distance_km"] == 1.0
+    assert row["distance_mi"] == 0.621  # 1.0 km in miles
     assert row["steps"] == 1300
     assert row["duration_min"] == 10
     assert row["sessions"] == 1
@@ -36,4 +37,5 @@ def test_write_export_atomic_json(tmp_path):
     data = json.loads(path.read_text())
     assert "generated_at" in data
     assert data["days"][0]["distance_km"] == 0.5
+    assert data["days"][0]["distance_mi"] == 0.311  # 0.5 km in miles
     assert data["days"][0]["duration_min"] == 5

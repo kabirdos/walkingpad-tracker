@@ -73,6 +73,7 @@ The daemon writes `~/Library/Mobile Documents/com~apple~CloudDocs/WalkingPad/dai
 {
   "date": "2026-05-23",
   "distance_km": 0.08,
+  "distance_mi": 0.05,
   "steps": 155,
   "duration_min": 2,
   "sessions": 1
@@ -92,10 +93,10 @@ The daemon writes `~/Library/Mobile Documents/com~apple~CloudDocs/WalkingPad/dai
       _Current Date_, **Adjust Date** by −1 day, **Format Date** as `yyyy-MM-dd`.
       Then **Filter** the `days` list where `date` _is_ that formatted string and
       take the **First Item**.
-   5. From that item, read `distance_km` and `duration_min`
+   5. From that item, read `distance_mi` and `duration_min`
       (**Get Dictionary Value** twice).
    6. **Log Workout** → Activity **Walking**, **Duration** = `duration_min`
-      minutes, **Distance** = `distance_km` kilometers.
+      minutes, **Distance** = `distance_mi` miles.
 3. Test: run the shortcut once after a walk and confirm a Walking workout appears
    in the Health app for yesterday.
 

@@ -8,6 +8,8 @@ import datetime as dt
 import json
 import os
 
+MI = 0.621371  # km -> miles
+
 
 def default_export_dir():
     return os.path.expanduser(
@@ -21,6 +23,7 @@ def build_export(store, days=60):
         {
             "date": row["day"],
             "distance_km": round((row["distance_m"] or 0) / 1000, 3),
+            "distance_mi": round((row["distance_m"] or 0) / 1000 * MI, 3),
             "steps": int(row["steps"] or 0),
             "duration_min": round((row["duration_s"] or 0) / 60),
             "sessions": int(row["sessions"] or 0),

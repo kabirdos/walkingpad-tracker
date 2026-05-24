@@ -21,11 +21,14 @@ class PadClient:
         self.ctrl = Controller()
         self._callback = None
         self._address = None
+        self._last_rx = 0.0
         # ph4 may call the handler as (sender, record) or (record); take last arg.
         self.ctrl.handler_cur_status = self._on_cur_status
 
     def _on_cur_status(self, *args):
         record = args[-1]
+        if record is not None:
+            self._last_rx = time.time()
         if self._callback and record is not None:
             self._callback(cur_status_to_padstatus(record, time.time()))
 
@@ -45,6 +48,7 @@ class PadClient:
             )
         await self.ctrl.run(address)
         self._address = address
+        self._last_rx = time.time()
         return address
 
     async def disconnect(self):
@@ -65,12 +69,19 @@ class PadClient:
     async def set_speed(self, kmh):
         await self.ctrl.change_speed(kmh_to_pad_speed(kmh))
 
-    async def capture(self, callback, interval=0.8):
+    async def capture(self, callback, interval=0.8, stale_timeout=15.0):
         """Poll the pad forever, pushing PadStatus to callback.
 
-        Raises on connection loss so the caller's reconnect loop can take over.
+        Raises on connection loss — or when no data has arrived for
+        `stale_timeout` seconds (a half-dead BLE link that stops delivering
+        notifications without erroring) — so the caller's reconnect loop runs.
         """
         self._callback = callback
+        self._last_rx = time.time()
         while True:
             await self.poll()
             await asyncio.sleep(interval)
+            if time.time() - self._last_rx > stale_timeout:
+                raise RuntimeError(
+                    f"no pad data for {stale_timeout:.0f}s; connection stale"
+                )
