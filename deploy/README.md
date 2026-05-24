@@ -57,39 +57,39 @@ launchctl kickstart -k gui/$(id -u)/com.walkingpad.daemon
 
 ## 2. Apple Health sync (iPhone Shortcut)
 
-The daemon writes `~/Library/Mobile Documents/com~apple~CloudDocs/WalkingPad/daily.json`
-(visible on the phone as **iCloud Drive → WalkingPad → daily.json**). Each entry:
+The daemon writes two files to
+`~/Library/Mobile Documents/com~apple~CloudDocs/WalkingPad/` (visible on the
+phone as **iCloud Drive → WalkingPad**):
 
-```json
-{
-  "date": "2026-05-23",
-  "distance_km": 0.08,
-  "distance_mi": 0.05,
-  "steps": 155,
-  "duration_min": 2,
-  "sessions": 1
-}
-```
+- **`yesterday.json`** — just yesterday's totals; use this for the Shortcut (no
+  date math needed):
+  ```json
+  {
+    "date": "2026-05-23",
+    "distance_km": 0.08,
+    "distance_mi": 0.05,
+    "steps": 155,
+    "duration_min": 2,
+    "sessions": 1
+  }
+  ```
+- **`daily.json`** — the full per-day history (for reference / other uses).
 
 ### One-time phone setup
 
 1. **Settings → Health → Data Access & Devices → Shortcuts** → enable, and make
    sure **Workouts** is allowed to be written.
-2. Open **Shortcuts** and create a new shortcut named **"Log WalkingPad"**:
-   1. **Get File** (Files action) → service **iCloud Drive**, path
-      `WalkingPad/daily.json`. Turn _Show Document Picker_ OFF.
-   2. **Get Contents of File** → then **Get Dictionary from Input**.
-   3. **Get Dictionary Value** → key `days` (this is the list of days).
-   4. **Get Dictionary Value** → for "yesterday": add a **Date** action set to
-      _Current Date_, **Adjust Date** by −1 day, **Format Date** as `yyyy-MM-dd`.
-      Then **Filter** the `days` list where `date` _is_ that formatted string and
-      take the **First Item**.
-   5. From that item, read `distance_mi` and `duration_min`
-      (**Get Dictionary Value** twice).
-   6. **Log Workout** → Activity **Walking**, **Duration** = `duration_min`
+2. Open **Shortcuts**, create a new shortcut named **"Log WalkingPad"** with these
+   four actions:
+   1. **Get File** (Files) → service **iCloud Drive**, path
+      `WalkingPad/yesterday.json`. Turn _Show Document Picker_ OFF.
+   2. **Get Contents of File** → **Get Dictionary from Input**.
+   3. **Get Dictionary Value** `distance_mi`, and again **Get Dictionary Value**
+      `duration_min`.
+   4. **Log Workout** → Activity **Walking**, **Duration** = `duration_min`
       minutes, **Distance** = `distance_mi` miles.
-3. Test: run the shortcut once after a walk and confirm a Walking workout appears
-   in the Health app for yesterday.
+3. Test: run the shortcut once and confirm a Walking workout appears in the
+   Health app for yesterday.
 
 ### Make it hands-off
 

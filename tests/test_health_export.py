@@ -2,7 +2,7 @@ import datetime as dt
 import json
 
 from walkingpad.store import Store
-from walkingpad.health_export import build_export, write_export
+from walkingpad.health_export import build_export, build_yesterday, write_export
 
 
 def _add(db, ts, dist, steps, dur):
@@ -25,6 +25,27 @@ def test_build_export(tmp_path):
     assert row["steps"] == 1300
     assert row["duration_min"] == 10
     assert row["sessions"] == 1
+
+
+def test_build_yesterday(tmp_path):
+    db = Store(str(tmp_path / "t.db"))
+    y = dt.datetime.combine(dt.date.today() - dt.timedelta(days=1), dt.time(9, 0))
+    _add(db, y.timestamp(), 1000, 1300, 600)
+    r = build_yesterday(db)
+    assert r["date"] == (dt.date.today() - dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    assert r["distance_mi"] == 0.621
+    assert r["steps"] == 1300
+    assert r["duration_min"] == 10
+
+
+def test_write_export_also_writes_yesterday(tmp_path):
+    db = Store(str(tmp_path / "t.db"))
+    y = dt.datetime.combine(dt.date.today() - dt.timedelta(days=1), dt.time(9, 0))
+    _add(db, y.timestamp(), 500, 650, 300)
+    write_export(db, str(tmp_path / "daily.json"), days=7)
+    yj = json.loads((tmp_path / "yesterday.json").read_text())
+    assert yj["distance_mi"] == 0.311
+    assert yj["steps"] == 650
 
 
 def test_write_export_atomic_json(tmp_path):
