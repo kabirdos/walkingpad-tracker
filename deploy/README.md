@@ -57,39 +57,37 @@ launchctl kickstart -k gui/$(id -u)/com.walkingpad.daemon
 
 ## 2. Apple Health sync (iPhone Shortcut)
 
-The daemon writes two files to
-`~/Library/Mobile Documents/com~apple~CloudDocs/WalkingPad/` (visible on the
-phone as **iCloud Drive → WalkingPad**):
+The daemon serves yesterday's totals at **`http://<your-mac>.local:8787/yesterday`**
+(find `<your-mac>` with `scutil --get LocalHostName`). On the same Wi-Fi, your
+phone can read it with the easy-to-find **Get Contents of URL** action:
 
-- **`yesterday.json`** — just yesterday's totals; use this for the Shortcut (no
-  date math needed):
-  ```json
-  {
-    "date": "2026-05-23",
-    "distance_km": 0.08,
-    "distance_mi": 0.05,
-    "steps": 155,
-    "duration_min": 2,
-    "sessions": 1
-  }
-  ```
-- **`daily.json`** — the full per-day history (for reference / other uses).
+```json
+{
+  "date": "2026-05-23",
+  "distance_km": 0.08,
+  "distance_mi": 0.05,
+  "steps": 155,
+  "duration_min": 2,
+  "sessions": 1
+}
+```
+
+> The daemon binds to `0.0.0.0` so the phone can reach it on your LAN — fine on a
+> trusted home network (anyone on it could view the dashboard / control the pad).
+> The same data is also written to `iCloud Drive/WalkingPad/yesterday.json` as an
+> offline fallback.
 
 ### One-time phone setup
 
-1. **Settings → Health → Data Access & Devices → Shortcuts** → enable, and make
-   sure **Workouts** is allowed to be written.
-2. Open **Shortcuts**, create a new shortcut named **"Log WalkingPad"** with these
-   four actions:
-   1. **Get File** (Files) → service **iCloud Drive**, path
-      `WalkingPad/yesterday.json`. Turn _Show Document Picker_ OFF.
-   2. **Get Contents of File** → **Get Dictionary from Input**.
-   3. **Get Dictionary Value** `distance_mi`, and again **Get Dictionary Value**
-      `duration_min`.
-   4. **Log Workout** → Activity **Walking**, **Duration** = `duration_min`
-      minutes, **Distance** = `distance_mi` miles.
-3. Test: run the shortcut once and confirm a Walking workout appears in the
-   Health app for yesterday.
+1. **Settings → Health → Data Access & Devices → Shortcuts** → enable, allow **Workouts**.
+2. Open **Shortcuts**, create **"Log WalkingPad"** with four actions:
+   1. **Get Contents of URL** → `http://<your-mac>.local:8787/yesterday`
+      (returns JSON, which Shortcuts treats as a dictionary).
+   2. **Get Dictionary Value** → key `distance_mi` (input: _Contents of URL_).
+   3. **Get Dictionary Value** → key `duration_min` (input: _Contents of URL_).
+   4. **Log Workout** → Activity **Walking**, **Duration** = the `duration_min`
+      value (minutes), **Distance** = the `distance_mi` value (miles).
+3. Run it once and confirm a Walking workout appears in Health for yesterday.
 
 ### Make it hands-off
 
