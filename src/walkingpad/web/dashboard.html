@@ -585,10 +585,12 @@
                 >Speed</span
               >
               <button class="preset nudge" data-delta="-0.1">&minus;0.1</button>
-              <button class="preset" data-mph="1.0">1.0</button>
-              <button class="preset" data-mph="1.5">1.5</button>
+              <button class="preset" data-mph="1.4">1.4</button>
+              <button class="preset" data-mph="1.6">1.6</button>
+              <button class="preset" data-mph="1.8">1.8</button>
               <button class="preset" data-mph="2.0">2.0</button>
-              <button class="preset" data-mph="2.5">2.5</button>
+              <button class="preset" data-mph="2.2">2.2</button>
+              <button class="preset" data-mph="2.4">2.4</button>
               <button class="preset nudge" data-delta="0.1">+0.1</button>
             </div>
           </div>
@@ -635,6 +637,18 @@
         <!-- Sessions -->
         <section class="panel delay4 full sessions">
           <div class="label">Today's sessions</div>
+          <div
+            style="
+              font-family: var(--mono);
+              font-size: 11px;
+              color: var(--muted);
+              letter-spacing: 0.03em;
+              margin: -8px 0 14px;
+            "
+          >
+            Each row is one separate walk &middot; the Today panel above is
+            their sum
+          </div>
           <div id="session-list">
             <div class="empty">No sessions yet today.</div>
           </div>

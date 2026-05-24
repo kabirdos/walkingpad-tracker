@@ -11,7 +11,7 @@ import webbrowser
 
 import rumps
 
-from walkingpad.menubar_core import format_title, summary_lines
+from walkingpad.menubar_core import MI, format_title, summary_lines
 
 API = os.environ.get("WALKINGPAD_API", "http://127.0.0.1:8787")
 
@@ -33,8 +33,8 @@ class WalkingPadBar(rumps.App):
         super().__init__("\U0001f6b6 …", quit_button="Quit")
         self.summary_items = [rumps.MenuItem(t) for t in summary_lines(None)]
         speed_menu = ("Speed", [
-            rumps.MenuItem(f"{s:.1f} km/h", callback=self._make_speed(s))
-            for s in (1.0, 1.5, 2.0, 2.5)
+            rumps.MenuItem(f"{s:.1f} mph", callback=self._make_speed(s))
+            for s in (1.4, 1.6, 1.8, 2.0, 2.2, 2.4)
         ])
         self.menu = [
             *self.summary_items,
@@ -60,9 +60,9 @@ class WalkingPadBar(rumps.App):
         for item, text in zip(self.summary_items, summary_lines(today)):
             item.title = text
 
-    def _make_speed(self, kmh):
+    def _make_speed(self, mph):
         def cb(_):
-            self._safe(lambda: _post("/control/speed", {"kmh": kmh}))
+            self._safe(lambda: _post("/control/speed", {"kmh": mph / MI}))
         return cb
 
     def on_start(self, _):
