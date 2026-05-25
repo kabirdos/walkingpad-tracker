@@ -4,15 +4,21 @@ import time
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    start_ts      REAL NOT NULL,
-    end_ts        REAL,
-    duration_s    INTEGER DEFAULT 0,
-    distance_m    INTEGER DEFAULT 0,
-    steps         INTEGER DEFAULT 0,
-    avg_speed_kmh REAL DEFAULT 0,
-    max_speed_kmh REAL DEFAULT 0,
-    created_at    REAL NOT NULL
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    start_ts        REAL NOT NULL,
+    end_ts          REAL,
+    duration_s      INTEGER DEFAULT 0,
+    distance_m      INTEGER DEFAULT 0,
+    steps           INTEGER DEFAULT 0,
+    avg_speed_kmh   REAL DEFAULT 0,
+    max_speed_kmh   REAL DEFAULT 0,
+    -- Pad counter values at this session's zero point. Non-zero when a run
+    -- spilled past midnight into a new day; lets a restarted daemon restore
+    -- the offset and keep the session's totals relative to its own start.
+    origin_distance INTEGER DEFAULT 0,
+    origin_steps    INTEGER DEFAULT 0,
+    origin_elapsed  INTEGER DEFAULT 0,
+    created_at      REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS samples (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,12 +38,27 @@ class Store:
         self.conn = sqlite3.connect(db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
 
-    def create_session(self, start_ts):
+    def _migrate(self):
+        # Add columns introduced after the original schema to pre-existing DBs.
+        have = {r[1] for r in self.conn.execute("PRAGMA table_info(sessions)")}
+        for col in ("origin_distance", "origin_steps", "origin_elapsed"):
+            if col not in have:
+                self.conn.execute(
+                    f"ALTER TABLE sessions ADD COLUMN {col} INTEGER DEFAULT 0"
+                )
+
+    def create_session(self, start_ts, origin_distance=0, origin_steps=0,
+                       origin_elapsed=0):
         cur = self.conn.execute(
-            "INSERT INTO sessions (start_ts, end_ts, created_at) VALUES (?, ?, ?)",
-            (start_ts, start_ts, time.time()),
+            """INSERT INTO sessions
+               (start_ts, end_ts, origin_distance, origin_steps, origin_elapsed,
+                created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (start_ts, start_ts, origin_distance, origin_steps, origin_elapsed,
+             time.time()),
         )
         self.conn.commit()
         return cur.lastrowid
