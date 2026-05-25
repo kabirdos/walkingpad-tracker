@@ -79,20 +79,36 @@ phone can read it with the easy-to-find **Get Contents of URL** action:
 
 ### One-time phone setup
 
-1. **Settings → Health → Data Access & Devices → Shortcuts** → enable, allow **Workouts**.
-2. Open **Shortcuts**, create **"Log WalkingPad"** with four actions:
+1. **Health app → your profile photo → Apps and Services → Shortcuts → Allow
+   Shortcuts to Write Data** → turn on **Workouts**, **Walking + Running
+   Distance**, **Active Energy**, and **Steps**. Logging a walk with distance
+   and steps needs all of these — if one is off, the log action fails.
+2. Open **Shortcuts**, create **"Log WalkingPad"** with these actions:
    1. **Get Contents of URL** → `http://<your-mac>.local:8787/yesterday`
-      (returns JSON, which Shortcuts treats as a dictionary).
-   2. **Get Dictionary Value** → key `distance_mi` (input: _Contents of URL_).
-   3. **Get Dictionary Value** → key `duration_min` (input: _Contents of URL_).
-   4. **Log Workout** → Activity **Walking**, **Duration** = the `duration_min`
-      value (minutes), **Distance** = the `distance_mi` value (miles).
-3. Run it once and confirm a Walking workout appears in Health for yesterday.
+      — plain `http`, **not** https; returns JSON, which Shortcuts treats as a
+      dictionary. If the `.local` name is unreliable in Shortcuts, use your
+      Mac's LAN IP instead, e.g. `http://192.168.1.50:8787/yesterday`.
+   2. **Date** (current date) → **Adjust Date** → **Subtract** `1` **Day**.
+      Its output ("yesterday") is fed into the log actions below so entries land
+      on the correct day instead of the moment the Shortcut runs.
+   3. **Get Dictionary Value** → key `distance_mi` (input: _Contents of URL_).
+   4. **Get Dictionary Value** → key `duration_min` (input: _Contents of URL_).
+   5. **Get Dictionary Value** → key `steps` (input: _Contents of URL_).
+   6. **Log Workout** → Activity **Walking**, **Start Date** = the adjusted date,
+      **Duration** = `duration_min` (minutes), **Distance** = `distance_mi`
+      (miles), **Calories** = `0`. Calories is required — an empty field makes
+      this action error with a generic message; the pad reports no calories.
+   7. **Log Health Sample** → type **Steps**, **Value** = `steps`, **Start/End
+      Date** = the adjusted date. (Log Workout can't write steps — they're a
+      separate Health data type, so this second action is what records them.)
+3. Run it once and confirm a Walking workout **and** the step count appear in
+   Health under yesterday's date.
 
 ### Make it hands-off
 
-**Shortcuts → Automation → New → Time of Day → 6:00 AM, Daily** → run
-**"Log WalkingPad"** → turn **Ask Before Running** OFF.
+**Shortcuts → Automation → New → Time of Day → 6:00 AM, Daily** → **Run
+Immediately** → run **"Log WalkingPad"**. (On older iOS, turn **Ask Before
+Running** OFF instead.)
 
 Each morning it logs _yesterday's_ completed total once — no taps. (It only ever
 reads the previous, finished day, so it won't double-log today.)
