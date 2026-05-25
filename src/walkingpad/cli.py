@@ -67,7 +67,7 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None):
     # ongoing run isn't recorded twice.
     latest = store.get_latest_session()
     if latest and latest["end_ts"] and (time.time() - latest["end_ts"] < 30):
-        recorder.resume(latest["id"], latest["distance_m"], latest["max_speed_kmh"])
+        recorder.resume(latest)
 
     def on_status(status):
         state.record_status(status)
