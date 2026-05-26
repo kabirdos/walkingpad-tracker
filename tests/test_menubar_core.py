@@ -11,8 +11,10 @@ def test_title_idle_shows_today_miles():
     assert format_title(s, {"distance_m": 80}) == "\U0001f6b6 0.05 mi"
 
 
-def test_title_offline_shows_today_miles():
-    assert format_title({"connected": False}, {"distance_m": 250}) == "\U0001f6b6 0.16 mi"
+def test_title_disconnected_shows_asleep_symbol():
+    # Pad reachable-check says not connected -> it's asleep; flag it at a glance
+    # (sleep symbol) while still showing today's distance.
+    assert format_title({"connected": False}, {"distance_m": 250}) == "⏾ 0.16 mi"
 
 
 def test_title_handles_missing():

@@ -14,6 +14,10 @@ class DaemonState:
     def record_status(self, status):
         self.latest_status = status
 
+    async def wake(self):
+        if self.pad_client is not None:
+            await self.pad_client.wake()
+
     async def start_belt(self):
         if self.pad_client is not None:
             await self.pad_client.start_belt()

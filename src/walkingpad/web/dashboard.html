@@ -577,6 +577,7 @@
 
           <div class="controls">
             <div class="btn-row">
+              <button id="btn-wake">Wake</button>
               <button class="go" id="btn-start">Start</button>
               <button class="halt" id="btn-stop">Stop</button>
             </div>
@@ -693,14 +694,18 @@
 
           $("cockpit").classList.toggle("moving", moving);
           $("state-tag").textContent = !connected
-            ? "offline"
+            ? "asleep"
             : moving
               ? "walking"
               : "standby";
 
           const pill = $("status-pill");
           pill.classList.toggle("online", connected);
-          $("status-text").textContent = connected ? "connected" : "offline";
+          // Disconnected here means the daemon can't see the pad over BLE —
+          // it's asleep (radio off) and only the physical remote can wake it.
+          $("status-text").textContent = connected
+            ? "connected"
+            : "asleep · use remote";
 
           setControlsEnabled(connected);
         } catch (e) {
@@ -713,6 +718,7 @@
       }
 
       function setControlsEnabled(on) {
+        $("btn-wake").disabled = !on;
         $("btn-start").disabled = !on;
         $("btn-stop").disabled = !on;
         document
@@ -828,6 +834,7 @@
       }
 
       // Controls
+      $("btn-wake").onclick = () => control("/control/wake");
       $("btn-start").onclick = () => control("/control/start");
       $("btn-stop").onclick = () => control("/control/stop");
       let setMph = 1.5; // last speed we asked for, in mph

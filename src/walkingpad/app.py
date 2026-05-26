@@ -61,10 +61,19 @@ def create_app(state):
         days = 30 if range == "month" else 7
         return {"range": range, "days": state.store.daily_series(days)}
 
+    @app.post("/control/wake")
+    async def control_wake():
+        if not state.connected:
+            raise HTTPException(status_code=503, detail="pad not connected")
+        await state.wake()
+        return {"ok": True}
+
     @app.post("/control/start")
     async def control_start():
         if not state.connected:
             raise HTTPException(status_code=503, detail="pad not connected")
+        # Wake out of standby first so a single press works even when idle.
+        await state.wake()
         await state.start_belt()
         return {"ok": True}
 
