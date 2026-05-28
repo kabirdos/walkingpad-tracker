@@ -43,6 +43,22 @@ def test_dashboard_served(tmp_path):
     assert "/control/wake" in r.text   # ...including the Wake control
 
 
+def test_embed_widget_served(tmp_path):
+    # A small read-only widget for embedding in tools like Obsidian via iframe.
+    # Reuses /status, /today, /history — no controls of its own.
+    client, state, pad = make_client(tmp_path)
+    r = client.get("/embed")
+    assert r.status_code == 200
+    assert "text/html" in r.headers["content-type"]
+    assert "Walking" in r.text
+    # mini-cockpit content: live state + today totals + a sparkline
+    assert "live-speed" in r.text
+    assert "t-dist" in r.text
+    assert "sparkline" in r.text
+    # widget is read-only — never POST to /control/ from a note iframe
+    assert "/control/" not in r.text
+
+
 def test_status_empty(tmp_path):
     client, state, pad = make_client(tmp_path)
     body = client.get("/status").json()
