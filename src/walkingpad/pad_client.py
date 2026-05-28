@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from bleak import BleakScanner
-from ph4_walkingpad.pad import Controller
+from ph4_walkingpad.pad import Controller, WalkingPad
 
 from walkingpad.status import cur_status_to_padstatus
 
@@ -59,6 +59,12 @@ class PadClient:
 
     async def poll(self):
         await self.ctrl.ask_stats()
+
+    async def wake(self):
+        """Bring a connected pad out of standby into manual mode so the belt
+        can run. Only reachable over BLE — a deep-asleep pad (radio off, not
+        discoverable) can't be woken from software; it needs the remote."""
+        await self.ctrl.switch_mode(WalkingPad.MODE_MANUAL)
 
     async def start_belt(self):
         await self.ctrl.start_belt()

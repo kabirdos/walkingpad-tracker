@@ -21,6 +21,9 @@ class FakePad:
     async def set_speed(self, kmh):
         self.calls.append(("speed", kmh))
 
+    async def wake(self):
+        self.calls.append(("wake",))
+
 
 def make_client(tmp_path, connected=True):
     store = Store(str(tmp_path / "t.db"))
@@ -37,6 +40,7 @@ def test_dashboard_served(tmp_path):
     assert "text/html" in r.headers["content-type"]
     assert "Walking" in r.text
     assert "/control/speed" in r.text  # the dashboard wires up controls
+    assert "/control/wake" in r.text   # ...including the Wake control
 
 
 def test_status_empty(tmp_path):
@@ -107,3 +111,22 @@ def test_control_calls_pad(tmp_path):
 def test_control_503_when_disconnected(tmp_path):
     client, state, pad = make_client(tmp_path, connected=False)
     assert client.post("/control/start").status_code == 503
+
+
+def test_wake_calls_pad(tmp_path):
+    client, state, pad = make_client(tmp_path)
+    assert client.post("/control/wake").json() == {"ok": True}
+    assert ("wake",) in pad.calls
+
+
+def test_wake_503_when_disconnected(tmp_path):
+    client, state, pad = make_client(tmp_path, connected=False)
+    assert client.post("/control/wake").status_code == 503
+
+
+def test_start_wakes_then_starts(tmp_path):
+    # Start must wake the pad out of standby first, then run the belt, so a
+    # single press works even when the pad is sitting in connected-standby.
+    client, state, pad = make_client(tmp_path)
+    assert client.post("/control/start").json() == {"ok": True}
+    assert pad.calls == [("wake",), ("start",)]

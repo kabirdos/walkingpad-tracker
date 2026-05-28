@@ -39,6 +39,7 @@ class WalkingPadBar(rumps.App):
         self.menu = [
             *self.summary_items,
             None,
+            rumps.MenuItem("Wake", callback=self.on_wake),
             rumps.MenuItem("Start", callback=self.on_start),
             rumps.MenuItem("Stop", callback=self.on_stop),
             speed_menu,
@@ -64,6 +65,9 @@ class WalkingPadBar(rumps.App):
         def cb(_):
             self._safe(lambda: _post("/control/speed", {"kmh": mph / MI}))
         return cb
+
+    def on_wake(self, _):
+        self._safe(lambda: _post("/control/wake"))
 
     def on_start(self, _):
         self._safe(lambda: _post("/control/start"))
