@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WalkingPad · widget</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500..800;1,9..144,500..800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Mini WalkingPad widget — designed to live inside an iframe in
+         Obsidian (or similar). Read-only. Inherits the parent dashboard's
+         editorial-sport palette: cream paper, warm ink, persimmon accent. */
+      :root {
+        --bg: #f4efe5;
+        --paper: #fbf7ee;
+        --ink: #161310;
+        --muted: #7a736b;
+        --line: rgba(22, 19, 16, 0.12);
+        --line-soft: rgba(22, 19, 16, 0.06);
+        --signal: #de3a1a;
+        --signal-soft: rgba(222, 58, 26, 0.12);
+        --signal-glow: rgba(222, 58, 26, 0.22);
+        --mono: "JetBrains Mono", ui-monospace, monospace;
+        --sans: "Space Grotesk", system-ui, sans-serif;
+        --serif: "Fraunces", Georgia, serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: var(--sans);
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--ink);
+        background: var(--bg);
+        background-image: radial-gradient(
+          circle at 1px 1px,
+          rgba(22, 19, 16, 0.045) 1px,
+          transparent 0
+        );
+        background-size: 5px 5px;
+        background-attachment: fixed;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      .widget {
+        padding: 12px 14px 14px;
+        max-width: 460px;
+      }
+
+      /* ---- Top: brand + status ---- */
+      .top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 8px;
+      }
+      .brand h1 {
+        margin: 0;
+        font-family: var(--serif);
+        font-weight: 600;
+        font-variation-settings:
+          "opsz" 96,
+          "SOFT" 30,
+          "WONK" 0;
+        font-size: 16px;
+        letter-spacing: -0.015em;
+        line-height: 1;
+        color: var(--ink);
+      }
+      .brand .tick {
+        font-family: var(--serif);
+        font-style: italic;
+        font-variation-settings:
+          "opsz" 144,
+          "SOFT" 80;
+        color: var(--signal);
+        font-weight: 700;
+      }
+      .brand .date {
+        display: block;
+        font-family: var(--mono);
+        font-size: 8.5px;
+        color: var(--muted);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        margin-top: 3px;
+      }
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 3px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--paper);
+        font-family: var(--mono);
+        font-size: 9px;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      .status .dot {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: var(--muted);
+      }
+      .status.online {
+        color: var(--ink);
+        border-color: var(--ink);
+      }
+      .status.online .dot {
+        background: var(--signal);
+        box-shadow: 0 0 0 2.5px var(--signal-glow);
+      }
+
+      /* ---- Live readout ---- */
+      .live {
+        display: flex;
+        align-items: baseline;
+        gap: 14px;
+        margin: 4px 0 8px;
+      }
+      .live .speed {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+      }
+      .live .speed .big {
+        font-family: var(--mono);
+        font-size: 32px;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.025em;
+        line-height: 1;
+        color: var(--ink);
+        transition: color 0.25s ease;
+      }
+      .live.moving .speed .big {
+        color: var(--signal);
+      }
+      .live .speed .unit {
+        font-family: var(--sans);
+        font-size: 9.5px;
+        color: var(--muted);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        font-weight: 600;
+      }
+      .live .state {
+        font-family: var(--mono);
+        font-size: 9px;
+        color: var(--muted);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .live.moving .state {
+        color: var(--signal);
+      }
+      .live .eq {
+        display: inline-flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 8px;
+        margin-left: 4px;
+        opacity: 0.32;
+      }
+      .live .eq span {
+        width: 2px;
+        background: var(--ink);
+        display: inline-block;
+        height: 32%;
+        animation: bar 1.05s ease-in-out infinite;
+      }
+      .live .eq span:nth-child(2) {
+        animation-delay: 0.1s;
+        height: 58%;
+      }
+      .live .eq span:nth-child(3) {
+        animation-delay: 0.2s;
+        height: 80%;
+      }
+      .live .eq span:nth-child(4) {
+        animation-delay: 0.3s;
+        height: 44%;
+      }
+      .live .eq span:nth-child(5) {
+        animation-delay: 0.4s;
+        height: 66%;
+      }
+      @keyframes bar {
+        50% {
+          height: 100%;
+        }
+      }
+      .live.moving .eq {
+        opacity: 1;
+      }
+      .live.moving .eq span {
+        background: var(--signal);
+      }
+
+      hr.rule {
+        border: none;
+        border-top: 1px solid var(--line);
+        margin: 8px 0 9px;
+      }
+
+      /* ---- Today stats ---- */
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px 10px;
+        margin-bottom: 10px;
+      }
+      .stat .v {
+        font-family: var(--mono);
+        font-size: 15.5px;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.015em;
+        color: var(--ink);
+        display: flex;
+        align-items: baseline;
+        gap: 2px;
+        line-height: 1.05;
+      }
+      .stat .v .u {
+        font-size: 8.5px;
+        color: var(--muted);
+        font-family: var(--sans);
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .stat .k {
+        font-family: var(--mono);
+        font-size: 8px;
+        color: var(--muted);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin-top: 3px;
+      }
+      .stat.streak .v {
+        color: var(--signal);
+      }
+
+      /* ---- Sparkline ---- */
+      .spark-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        margin-bottom: 4px;
+      }
+      .spark-label {
+        font-family: var(--mono);
+        font-size: 8px;
+        color: var(--muted);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+      .spark-max {
+        font-family: var(--mono);
+        font-size: 8.5px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
+      svg.sparkline {
+        display: block;
+        width: 100%;
+        height: 30px;
+        overflow: visible;
+      }
+      svg.sparkline rect {
+        fill: var(--signal);
+        opacity: 0.32;
+        transition:
+          opacity 0.2s ease,
+          transform 0.2s ease;
+      }
+      svg.sparkline rect.today {
+        opacity: 0.95;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="widget">
+      <div class="top">
+        <div class="brand">
+          <h1>Walking<span class="tick">·</span>Pad</h1>
+          <span class="date" id="today-date">—</span>
+        </div>
+        <div class="status" id="status-pill">
+          <span class="dot"></span><span id="status-text">connecting</span>
+        </div>
+      </div>
+
+      <div class="live" id="live">
+        <div class="speed">
+          <span class="big" id="live-speed">0.0</span>
+          <span class="unit">mph</span>
+        </div>
+        <div class="state" id="state-tag">standby</div>
+        <div class="eq">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+
+      <hr class="rule" />
+
+      <div class="stats">
+        <div class="stat">
+          <div class="v" id="t-dist">0.00<span class="u">mi</span></div>
+          <div class="k">distance</div>
+        </div>
+        <div class="stat">
+          <div class="v" id="t-steps">0</div>
+          <div class="k">steps</div>
+        </div>
+        <div class="stat">
+          <div class="v" id="t-mins">0<span class="u">min</span></div>
+          <div class="k">active</div>
+        </div>
+        <div class="stat streak">
+          <div class="v" id="t-streak">0<span class="u">d</span></div>
+          <div class="k">streak</div>
+        </div>
+      </div>
+
+      <div class="spark-head">
+        <span class="spark-label">7 days · distance</span>
+        <span class="spark-max" id="spark-max">—</span>
+      </div>
+      <svg
+        class="sparkline"
+        id="sparkline"
+        viewBox="0 0 100 30"
+        preserveAspectRatio="none"
+      ></svg>
+    </div>
+
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const MI = 0.621371; // km -> miles, and km/h -> mph
+      const fmtInt = (n) => Math.round(n).toLocaleString("en-US");
+      const fmtMi = (m) => ((m / 1000) * MI).toFixed(2);
+      const mph = (kmh) => (kmh || 0) * MI;
+
+      async function api(path) {
+        const r = await fetch(path);
+        if (!r.ok) throw new Error(path + " -> " + r.status);
+        return r.json();
+      }
+
+      async function pollStatus() {
+        try {
+          const s = await api("/status");
+          const connected = !!s.connected;
+          const moving = (s.speed_kmh || 0) > 0;
+
+          $("live-speed").textContent = mph(s.speed_kmh).toFixed(1);
+          $("live").classList.toggle("moving", moving);
+          $("state-tag").textContent = !connected
+            ? "asleep · use remote"
+            : moving
+              ? "walking"
+              : "standby";
+
+          const pill = $("status-pill");
+          pill.classList.toggle("online", connected);
+          $("status-text").textContent = connected ? "connected" : "asleep";
+        } catch (e) {
+          $("status-pill").classList.remove("online");
+          $("status-text").textContent = "offline";
+          $("state-tag").textContent = "offline";
+          $("live").classList.remove("moving");
+        }
+      }
+
+      async function loadToday() {
+        try {
+          const t = await api("/today");
+          $("today-date").textContent = t.date || "—";
+          $("t-dist").innerHTML =
+            fmtMi(t.distance_m || 0) + '<span class="u">mi</span>';
+          $("t-steps").textContent = fmtInt(t.steps || 0);
+          $("t-mins").innerHTML =
+            Math.round((t.duration_s || 0) / 60) + '<span class="u">min</span>';
+          $("t-streak").innerHTML =
+            (t.streak || 0) + '<span class="u">d</span>';
+        } catch (e) {}
+      }
+
+      async function loadSparkline() {
+        try {
+          const data = await api("/history?range=week");
+          // /history returns only days that have sessions, so map by date and
+          // build a fixed 7-day window ending today (local) — otherwise sparse
+          // weeks would shift bars and mis-mark which day is "today".
+          const byDay = Object.fromEntries(
+            (data.days || []).map((d) => [d.day, d]),
+          );
+          const want = 7;
+          const pad2 = (n) => String(n).padStart(2, "0");
+          const localDateStr = (d) =>
+            `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+          const today = new Date();
+          const series = [];
+          for (let i = want - 1; i >= 0; i--) {
+            const d = new Date(today);
+            d.setDate(today.getDate() - i);
+            series.push(byDay[localDateStr(d)] || { distance_m: 0 });
+          }
+          const values = series.map((d) => ((d.distance_m || 0) / 1000) * MI);
+          const max = Math.max(...values, 0.01);
+          const svg = $("sparkline");
+          // 7 bars across the 0-100 viewBox; small gap between bars.
+          const slot = 100 / want;
+          const gap = 1.4;
+          const bw = slot - gap;
+          const todayIdx = want - 1;
+          svg.innerHTML = values
+            .map((v, i) => {
+              const h = Math.max(0.6, (v / max) * 28); // px-ish within 0..30 viewBox
+              const x = i * slot + gap / 2;
+              const y = 30 - h;
+              const today = i === todayIdx ? ' class="today"' : "";
+              return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${bw.toFixed(2)}" height="${h.toFixed(2)}" rx="0.6"${today}><title>${v.toFixed(2)} mi</title></rect>`;
+            })
+            .join("");
+          $("spark-max").textContent = "↑ " + max.toFixed(2) + " mi";
+        } catch (e) {}
+      }
+
+      // Boot + loops
+      pollStatus();
+      loadToday();
+      loadSparkline();
+      setInterval(pollStatus, 1000);
+      setInterval(loadToday, 15000);
+      setInterval(loadSparkline, 60000);
+    </script>
+  </body>
+</html>

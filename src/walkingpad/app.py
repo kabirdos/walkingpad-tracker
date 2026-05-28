@@ -26,6 +26,11 @@ def create_app(state):
     def dashboard():
         return FileResponse(os.path.join(WEB_DIR, "dashboard.html"))
 
+    @app.get("/embed")
+    def embed():
+        # Compact read-only widget for embedding in Obsidian (etc.) via iframe.
+        return FileResponse(os.path.join(WEB_DIR, "embed.html"))
+
     @app.get("/status")
     def get_status():
         s = state.latest_status
