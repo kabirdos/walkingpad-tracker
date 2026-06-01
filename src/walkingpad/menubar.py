@@ -85,7 +85,22 @@ class WalkingPadBar(rumps.App):
             rumps.notification("WalkingPad", "Command failed", str(e))
 
 
+def _hide_from_dock():
+    # Without this, launching via `python -m` shows a generic Python rocket
+    # icon in the Dock because the interpreter's bundle Info.plist isn't
+    # marked LSUIElement. Accessory keeps us in the menu bar but out of the
+    # Dock — standard for menu-bar utilities.
+    try:
+        import AppKit
+        AppKit.NSApplication.sharedApplication().setActivationPolicy_(
+            AppKit.NSApplicationActivationPolicyAccessory
+        )
+    except Exception:
+        pass
+
+
 def main():
+    _hide_from_dock()
     WalkingPadBar().run()
 
 
