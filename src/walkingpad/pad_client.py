@@ -1,10 +1,19 @@
 import asyncio
+import os
 import time
 
 from bleak import BleakScanner
 from ph4_walkingpad.pad import Controller, WalkingPad
 
 from walkingpad.status import cur_status_to_padstatus
+
+# Pads from KingSmith (the manufacturer behind the WalkingPad brand) advertise
+# under a handful of naming patterns depending on model year / firmware: older
+# units come up as "WALKINGPAD P1" etc., newer ones as "KS-XXXX". Match any of
+# these by substring. Override with WALKINGPAD_NAME (comma-separated) if you
+# have a pad whose name doesn't fit, or use WALKINGPAD_ADDRESS to pin a specific
+# device.
+DEFAULT_NAME_HINTS = ("walkingpad", "ks-", "kingsmith")
 
 # Cap how long we'll wait inside ph4's `Controller.run` (which covers the BLE
 # connect AND service/characteristic discovery + notify setup) before bailing.
@@ -25,11 +34,25 @@ def kmh_to_pad_speed(kmh):
     return max(5, min(60, raw))
 
 
+def _resolve_name_hints(hint):
+    # Accept a single string, an iterable of strings, or None. None means: read
+    # WALKINGPAD_NAME from the env (comma-separated) or fall back to defaults.
+    # A blank/whitespace-only env value also falls back, otherwise we'd silently
+    # disable discovery.
+    if hint is None:
+        env = os.environ.get("WALKINGPAD_NAME", "")
+        parsed = tuple(h.strip().lower() for h in env.split(",") if h.strip())
+        return parsed or DEFAULT_NAME_HINTS
+    if isinstance(hint, str):
+        return (hint.lower(),)
+    return tuple(h.lower() for h in hint)
+
+
 class PadClient:
     """Thin async adapter over ph4_walkingpad.Controller."""
 
-    def __init__(self, name_hint="WalkingPad"):
-        self.name_hint = name_hint
+    def __init__(self, name_hint=None):
+        self.name_hints = _resolve_name_hints(name_hint)
         self.ctrl = Controller()
         self._callback = None
         self._address = None
@@ -47,7 +70,10 @@ class PadClient:
     async def discover_address(self):
         devices = await BleakScanner.discover(timeout=8.0)
         for d in devices:
-            if d.name and self.name_hint.lower() in d.name.lower():
+            if not d.name:
+                continue
+            name = d.name.lower()
+            if any(h in name for h in self.name_hints):
                 return d.address
         return None
 
