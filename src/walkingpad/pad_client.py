@@ -15,6 +15,13 @@ from walkingpad.status import cur_status_to_padstatus
 # device.
 DEFAULT_NAME_HINTS = ("walkingpad", "ks-", "kingsmith")
 
+
+class PadNotFoundError(RuntimeError):
+    """Raised when BleakScanner returned no matching device. Distinct from a
+    generic connect failure so the daemon can count consecutive empty scans
+    and trigger a launchd respawn when CoreBluetooth's discovery cache has
+    gone stale (a fresh process gets a fresh CB client)."""
+
 # Cap how long we'll wait inside ph4's `Controller.run` (which covers the BLE
 # connect AND service/characteristic discovery + notify setup) before bailing.
 # A healthy full setup lands in ~1-3s; anything past this is a hung
@@ -81,7 +88,7 @@ class PadClient:
         if address is None:
             address = await self.discover_address()
         if address is None:
-            raise RuntimeError(
+            raise PadNotFoundError(
                 "WalkingPad not found. Is it powered on and the official app closed?"
             )
         try:
