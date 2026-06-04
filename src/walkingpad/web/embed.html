@@ -350,7 +350,7 @@
       </div>
 
       <div class="spark-head">
-        <span class="spark-label">7 days · distance</span>
+        <span class="spark-label">7 days · steps</span>
         <span class="spark-max" id="spark-max">—</span>
       </div>
       <svg
@@ -431,10 +431,10 @@
           for (let i = want - 1; i >= 0; i--) {
             const d = new Date(today);
             d.setDate(today.getDate() - i);
-            series.push(byDay[localDateStr(d)] || { distance_m: 0 });
+            series.push(byDay[localDateStr(d)] || { steps: 0 });
           }
-          const values = series.map((d) => ((d.distance_m || 0) / 1000) * MI);
-          const max = Math.max(...values, 0.01);
+          const values = series.map((d) => d.steps || 0);
+          const max = Math.max(...values, 1);
           const svg = $("sparkline");
           // 7 bars across the 0-100 viewBox; small gap between bars.
           const slot = 100 / want;
@@ -447,10 +447,10 @@
               const x = i * slot + gap / 2;
               const y = 30 - h;
               const today = i === todayIdx ? ' class="today"' : "";
-              return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${bw.toFixed(2)}" height="${h.toFixed(2)}" rx="0.6"${today}><title>${v.toFixed(2)} mi</title></rect>`;
+              return `<rect x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${bw.toFixed(2)}" height="${h.toFixed(2)}" rx="0.6"${today}><title>${fmtInt(v)} steps</title></rect>`;
             })
             .join("");
-          $("spark-max").textContent = "↑ " + max.toFixed(2) + " mi";
+          $("spark-max").textContent = "↑ " + fmtInt(max) + " steps";
         } catch (e) {}
       }
 

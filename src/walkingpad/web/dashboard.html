@@ -645,8 +645,8 @@
           <div class="trend-head">
             <div class="label" style="margin-bottom: 0">Trends</div>
             <div class="toggles">
-              <span class="t metric sel" data-metric="distance">Distance</span>
-              <span class="t metric" data-metric="steps">Steps</span>
+              <span class="t metric" data-metric="distance">Distance</span>
+              <span class="t metric sel" data-metric="steps">Steps</span>
               <span style="width: 14px"></span>
               <span class="t range sel" data-range="week">7d</span>
               <span class="t range" data-range="month">30d</span>
@@ -680,7 +680,7 @@
     <script>
       const $ = (id) => document.getElementById(id);
       let connected = false;
-      let curMetric = "distance";
+      let curMetric = "steps";
       let curRange = "week";
       let chart;
 
