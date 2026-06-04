@@ -2,13 +2,23 @@ import argparse
 import asyncio
 import datetime as dt
 import os
+import sys
 import time
 
 from walkingpad.store import Store
 from walkingpad.recorder import Recorder
-from walkingpad.pad_client import PadClient
+from walkingpad.pad_client import PadClient, PadNotFoundError
 
 MI = 0.621371  # km -> miles, km/h -> mph
+
+# If the BLE scanner returns no matching device this many times in a row, exit
+# and let launchd respawn us. The macOS CoreBluetooth daemon caches discovery
+# state per-process; once a Python-side BleakScanner falls into the "always
+# empty" pathology it does not recover on its own. With the 1→2→4→8→16→30
+# backoff this triggers after ~60s of empty scans — long enough that a genuinely
+# powered-off pad doesn't cause a respawn loop (launchd's own throttle would
+# slow that down anyway), short enough that a stale-cache day isn't lost.
+NOT_FOUND_RESPAWN_THRESHOLD = 6
 
 
 def default_db_path():
@@ -34,16 +44,29 @@ async def run_capture(db_path, address=None):
 
     client = PadClient()
     backoff = 1
+    not_found_streak = 0
     while True:
         try:
             addr = await client.connect(address)
             print(f"connected to {addr}", flush=True)
             backoff = 1
+            not_found_streak = 0
             await client.capture(on_status)
+        except PadNotFoundError as e:
+            not_found_streak += 1
+            await client.disconnect()
+            if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
+                print(f"scanner returned empty {not_found_streak}x; exiting for "
+                      f"launchd respawn (fresh CoreBluetooth state)", flush=True)
+                sys.exit(75)  # EX_TEMPFAIL — soft fail, KeepAlive will respawn
+            print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
+            await asyncio.sleep(backoff)
+            backoff = min(30, backoff * 2)
         except Exception as e:
             # Don't finalize the session on a transient drop — the recorder
             # closes it only on a real counter reset, so a reconnect mid-walk
             # continues the same session instead of double-counting.
+            not_found_streak = 0
             await client.disconnect()
             print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
             await asyncio.sleep(backoff)
@@ -79,15 +102,30 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None):
 
     async def capture_loop():
         backoff = 1
+        not_found_streak = 0
         while True:
             try:
                 addr = await client.connect(address)
                 state.connected = True
                 print(f"connected to {addr}", flush=True)
                 backoff = 1
+                not_found_streak = 0
                 await client.capture(on_status)
+            except PadNotFoundError as e:
+                state.connected = False
+                not_found_streak += 1
+                await client.disconnect()
+                if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
+                    print(f"scanner returned empty {not_found_streak}x; exiting "
+                          f"for launchd respawn (fresh CoreBluetooth state)",
+                          flush=True)
+                    sys.exit(75)  # EX_TEMPFAIL — soft fail, KeepAlive respawns us
+                print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
+                await asyncio.sleep(backoff)
+                backoff = min(30, backoff * 2)
             except Exception as e:
                 state.connected = False
+                not_found_streak = 0
                 # Keep the session open across transient reconnects (see note in
                 # run_capture); the recorder splits sessions only on a real reset.
                 await client.disconnect()
