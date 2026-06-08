@@ -86,13 +86,15 @@ async def run_capture(db_path, address=None):
             backoff = min(30, backoff * 2)
 
 
-async def run_serve(db_path, host="0.0.0.0", port=8787, address=None):
+async def run_serve(db_path, host="0.0.0.0", port=8787, address=None,
+                    vault_dir=None):
     """Run the capture loop and the HTTP API together in one asyncio process."""
     import uvicorn
 
     from walkingpad.state import DaemonState
     from walkingpad.app import create_app
     from walkingpad.health_export import write_export
+    from walkingpad.obsidian_export import write_export as write_vault_export
 
     store = Store(db_path)
     recorder = Recorder(store)
@@ -153,8 +155,24 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None):
                 pass
             await asyncio.sleep(120)
 
+    async def vault_export_loop():
+        # Write a near-live JSON file into the Obsidian vault every 30s for
+        # the personal-dashboard plugin's WalkingPad widget. Atomic write;
+        # failures are non-fatal (the widget will just show stale data). 30s
+        # is fast enough that a walk feels live without thrashing vault sync.
+        while True:
+            try:
+                write_vault_export(state, store, vault_dir)
+            except Exception:
+                pass
+            await asyncio.sleep(30)
+
     print(f"serving API on http://{host}:{port}", flush=True)
-    await asyncio.gather(server.serve(), capture_loop(), export_loop())
+    loops = [server.serve(), capture_loop(), export_loop()]
+    if vault_dir:
+        print(f"writing Obsidian vault summary to {vault_dir}", flush=True)
+        loops.append(vault_export_loop())
+    await asyncio.gather(*loops)
 
 
 def cmd_today(db_path):
@@ -199,6 +217,10 @@ def main():
     p_srv.add_argument("--port", type=int, default=8787)
     p_srv.add_argument("--address", default=os.environ.get("WALKINGPAD_ADDRESS"),
                        help="BLE address/UUID (default: auto-discover by name)")
+    p_srv.add_argument("--vault", default=os.environ.get("WALKINGPAD_VAULT"),
+                       help="Obsidian vault path; if set, write a near-live "
+                            "summary to <vault>/.dashboard/walkingpad.json "
+                            "for the personal-dashboard plugin")
 
     sub.add_parser("today", help="print today's totals")
 
@@ -213,7 +235,8 @@ def main():
     if args.command == "capture":
         asyncio.run(run_capture(args.db, args.address))
     elif args.command == "serve":
-        asyncio.run(run_serve(args.db, args.host, args.port, args.address))
+        asyncio.run(run_serve(args.db, args.host, args.port, args.address,
+                              args.vault))
     elif args.command == "today":
         cmd_today(args.db)
     elif args.command == "sessions":
