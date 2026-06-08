@@ -21,6 +21,21 @@ MI = 0.621371  # km -> miles, km/h -> mph
 NOT_FOUND_RESPAWN_THRESHOLD = 6
 
 
+def _force_respawn(streak):
+    # os._exit, not sys.exit. SystemExit propagates through asyncio.gather in
+    # theory, but in practice uvicorn's lifespan handler caught it and the
+    # process stayed alive for days holding port 8787 but answering nothing —
+    # the worst possible state because the watchdog appeared to fire (the
+    # message even printed) and launchd had no signal to respawn. os._exit
+    # bypasses every Python-level handler and immediately terminates with the
+    # given code; we're explicitly trying to be unkillable-by-finally.
+    print(f"scanner returned empty {streak}x; exiting for launchd respawn "
+          f"(fresh CoreBluetooth state)", flush=True)
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(75)  # EX_TEMPFAIL — KeepAlive=true will respawn us
+
+
 def default_db_path():
     base = os.path.expanduser("~/.local/share/walkingpad")
     os.makedirs(base, exist_ok=True)
@@ -56,9 +71,7 @@ async def run_capture(db_path, address=None):
             not_found_streak += 1
             await client.disconnect()
             if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
-                print(f"scanner returned empty {not_found_streak}x; exiting for "
-                      f"launchd respawn (fresh CoreBluetooth state)", flush=True)
-                sys.exit(75)  # EX_TEMPFAIL — soft fail, KeepAlive will respawn
+                _force_respawn(not_found_streak)
             print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
             await asyncio.sleep(backoff)
             backoff = min(30, backoff * 2)
@@ -116,10 +129,7 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None):
                 not_found_streak += 1
                 await client.disconnect()
                 if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
-                    print(f"scanner returned empty {not_found_streak}x; exiting "
-                          f"for launchd respawn (fresh CoreBluetooth state)",
-                          flush=True)
-                    sys.exit(75)  # EX_TEMPFAIL — soft fail, KeepAlive respawns us
+                    _force_respawn(not_found_streak)
                 print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
                 await asyncio.sleep(backoff)
                 backoff = min(30, backoff * 2)
