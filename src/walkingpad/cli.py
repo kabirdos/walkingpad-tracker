@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import datetime as dt
+import json
 import os
 import sys
 import time
@@ -11,14 +12,31 @@ from walkingpad.pad_client import PadClient, PadNotFoundError
 
 MI = 0.621371  # km -> miles, km/h -> mph
 
-# If the BLE scanner returns no matching device this many times in a row, exit
-# and let launchd respawn us. The macOS CoreBluetooth daemon caches discovery
-# state per-process; once a Python-side BleakScanner falls into the "always
-# empty" pathology it does not recover on its own. With the 1→2→4→8→16→30
-# backoff this triggers after ~60s of empty scans — long enough that a genuinely
-# powered-off pad doesn't cause a respawn loop (launchd's own throttle would
-# slow that down anyway), short enough that a stale-cache day isn't lost.
+# If the BLE scanner returns no matching device this many times in a row,
+# consider exiting to let launchd respawn us with fresh CoreBluetooth state. The
+# macOS CoreBluetooth daemon caches discovery state per-process; once a
+# Python-side BleakScanner falls into the "always empty" pathology it does not
+# recover on its own. With the 1→2→4→8→16→30 backoff this triggers after ~60s of
+# empty scans. A genuinely powered-off pad produces the same empty scans, so the
+# actual exit is gated by the respawn throttle below — hitting this threshold is
+# necessary but not sufficient to respawn.
 NOT_FOUND_RESPAWN_THRESHOLD = 6
+
+# Exit-for-respawn is a workaround for a *stuck* CoreBluetooth cache, which a
+# fresh process clears in a respawn or two. But a pad that's simply powered off
+# produces the exact same endless empty scans, and exiting unconditionally every
+# ~60s crash-loops the daemon: launchd's KeepAlive respawns it hundreds of times
+# until it classifies the job as "inefficient" (`pended nondemand spawn`) and
+# stops respawning it for good — leaving the menubar and dashboard dead
+# (observed 900+ runs). So we throttle: a persisted ledger of recent respawns
+# lets us allow a few quick respawns to clear a genuine cache wedge, then fall
+# back to at most one respawn per SLOW interval while the pad stays absent. A
+# 30-minute run reads to launchd as a well-behaved long-running job, never a
+# cycling one, so the job is never pended. Receiving real status data from the
+# pad clears the ledger, restoring fast recovery for the next real wedge.
+FAST_RESPAWN_LIMIT = 3           # quick respawns allowed to clear a stuck cache
+SLOW_RESPAWN_INTERVAL_S = 1800   # afterwards, respawn at most this often (30m)
+RESPAWN_STALE_S = 24 * 3600      # drop ledger entries older than a day (hygiene)
 
 
 def _force_respawn(streak):
@@ -34,6 +52,84 @@ def _force_respawn(streak):
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(75)  # EX_TEMPFAIL — KeepAlive=true will respawn us
+
+
+def _respawn_ledger_path(db_path):
+    return os.path.join(os.path.dirname(db_path), "respawn_history.json")
+
+
+def _load_respawns(path, now):
+    """Respawn timestamps from the ledger, dropping anything older than
+    RESPAWN_STALE_S. A missing or corrupt ledger reads as empty — the watchdog
+    must never be blocked by its own bookkeeping."""
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [t for t in data
+            if isinstance(t, (int, float)) and 0 <= now - t < RESPAWN_STALE_S]
+
+
+def _save_respawns(path, respawns):
+    """Persist the ledger atomically. Returns True on success. The caller must
+    NOT respawn on a False return: an unrecorded exit defeats the throttle
+    entirely (unlimited ~60s exits → launchd pends the job), which is the exact
+    failure this file exists to prevent."""
+    try:
+        tmp = f"{path}.tmp"
+        with open(tmp, "w") as f:
+            json.dump(respawns, f)
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        return False
+
+
+def _clear_respawns(path):
+    """Drop the ledger once real status data arrives: the pad is genuinely
+    reachable, so the next empty-scan wedge should get fast recovery again.
+    Returns True once the ledger is absent (removed, or already gone) so the
+    caller can retry on a transient unlink failure instead of giving up."""
+    try:
+        os.remove(path)
+        return True
+    except FileNotFoundError:
+        return True  # already absent — nothing to clear
+    except OSError:
+        return False  # couldn't remove; caller should retry next status
+
+
+def _respawn_allowed(respawns, now):
+    """Decide whether to exit for a respawn given prior respawns since the pad
+    last delivered data. Fast for the first few (clear a stuck cache), then at
+    most one per SLOW_RESPAWN_INTERVAL_S so a powered-off pad can't crash-loop."""
+    if len(respawns) < FAST_RESPAWN_LIMIT:
+        return True
+    return now - max(respawns) >= SLOW_RESPAWN_INTERVAL_S
+
+
+def _maybe_force_respawn(db_path, streak, now=None):
+    """Exit for a launchd respawn if the throttle allows it (never returns in
+    that case); otherwise log and return so the caller keeps scanning."""
+    now = time.time() if now is None else now
+    path = _respawn_ledger_path(db_path)
+    respawns = _load_respawns(path, now)
+    if not _respawn_allowed(respawns, now):
+        print(f"scanner returned empty {streak}x; already respawned "
+              f"{len(respawns)}x with no connection — pad appears powered off, "
+              f"scanning on instead of respawning", flush=True)
+        return
+    respawns.append(now)
+    if not _save_respawns(path, respawns):
+        # Can't record this respawn, so we can't throttle the next one. Refuse
+        # to exit rather than risk an untracked crash-loop; keep scanning.
+        print(f"scanner returned empty {streak}x; could not persist respawn "
+              f"ledger at {path} — scanning on instead of respawning", flush=True)
+        return
+    _force_respawn(streak)
 
 
 def default_db_path():
@@ -52,8 +148,19 @@ def _print_status(status):
 async def run_capture(db_path, address=None):
     store = Store(db_path)
     recorder = Recorder(store)
+    ledger_path = _respawn_ledger_path(db_path)
+
+    # Clear the respawn throttle only once we've received real status data, not
+    # on a bare connect(): the pad can accept a BLE connection and then deliver
+    # nothing ("no pad data ... connection stale"), and clearing on connect
+    # alone would reset the throttle every process and re-enable the crash-loop.
+    got_data = {"seen": False}
 
     def on_status(status):
+        # Retry the clear each packet until the ledger is confirmed gone, so a
+        # transient unlink failure doesn't leave stale throttle history behind.
+        if not got_data["seen"] and _clear_respawns(ledger_path):
+            got_data["seen"] = True
         _print_status(status)
         recorder.handle(status)
 
@@ -63,6 +170,7 @@ async def run_capture(db_path, address=None):
     while True:
         try:
             addr = await client.connect(address)
+            got_data["seen"] = False  # this connection must re-earn the clear
             print(f"connected to {addr}", flush=True)
             backoff = 1
             not_found_streak = 0
@@ -71,7 +179,10 @@ async def run_capture(db_path, address=None):
             not_found_streak += 1
             await client.disconnect()
             if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
-                _force_respawn(not_found_streak)
+                # Exits for a respawn only if the throttle allows it; otherwise
+                # we keep scanning (pad is powered off, not a stuck cache).
+                _maybe_force_respawn(db_path, not_found_streak)
+                not_found_streak = 0
             print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
             await asyncio.sleep(backoff)
             backoff = min(30, backoff * 2)
@@ -107,7 +218,19 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None,
     if latest and latest["end_ts"] and (time.time() - latest["end_ts"] < 30):
         recorder.resume(latest)
 
+    ledger_path = _respawn_ledger_path(db_path)
+
+    # Clear the respawn throttle only once we've received real status data, not
+    # on a bare connect(): the pad can accept a BLE connection and then deliver
+    # nothing ("no pad data ... connection stale"), and clearing on connect
+    # alone would reset the throttle every process and re-enable the crash-loop.
+    got_data = {"seen": False}
+
     def on_status(status):
+        # Retry the clear each packet until the ledger is confirmed gone, so a
+        # transient unlink failure doesn't leave stale throttle history behind.
+        if not got_data["seen"] and _clear_respawns(ledger_path):
+            got_data["seen"] = True
         state.record_status(status)
         recorder.handle(status)
 
@@ -121,6 +244,7 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None,
         while True:
             try:
                 addr = await client.connect(address)
+                got_data["seen"] = False  # this connection must re-earn the clear
                 state.connected = True
                 print(f"connected to {addr}", flush=True)
                 backoff = 1
@@ -131,7 +255,10 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None,
                 not_found_streak += 1
                 await client.disconnect()
                 if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
-                    _force_respawn(not_found_streak)
+                    # Exits for a respawn only if the throttle allows it;
+                    # otherwise keep scanning (pad off, not a stuck cache).
+                    _maybe_force_respawn(db_path, not_found_streak)
+                    not_found_streak = 0
                 print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
                 await asyncio.sleep(backoff)
                 backoff = min(30, backoff * 2)
