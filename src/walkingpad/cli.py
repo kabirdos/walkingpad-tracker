@@ -44,6 +44,27 @@ FAST_RESPAWN_LIMIT = 3           # quick re-execs allowed to clear a stuck cache
 SLOW_RESPAWN_INTERVAL_S = 1800   # afterwards, re-exec at most this often (30m)
 RESPAWN_STALE_S = 24 * 3600      # drop ledger entries older than a day (hygiene)
 
+# Outer bound on how stale a session may be for a restarting daemon to consider
+# re-attaching to it. This is only a bound — the actual decision is made against
+# the pad's counters in _continues_session, once real data arrives.
+#
+# It has to clear the time it takes us to *notice* a wedged scanner, because the
+# wedge is on our side: the pad can be walking the whole time. From the last
+# status packet that's ~15s of stale-link detection, then six discovery sweeps
+# (8s each) spaced by the 1→2→4→8→16→30 backoff — about two minutes before the
+# first re-exec, and FAST_RESPAWN_LIMIT allows a chain of three. The old 30s
+# window could never survive even one, so a wedge mid-walk opened a second
+# session and, because the pad's counters are cumulative, re-recorded everything
+# the first session already had (a 700m walk logged as 500m + 700m).
+# test_session_resume.py sizes this against the whole chain.
+SESSION_RESUME_WINDOW_S = 900
+
+# How long the pad's current run must already have been going, at the moment we
+# last recorded it, for us to believe a later packet belongs to that same run.
+# A run that had barely started is treated as unresumable: duplicating half a
+# minute of walking is a trivial cost next to overwriting a recorded walk.
+RUN_START_MARGIN_S = 30
+
 
 def _reexec_self(streak):
     """Replace this process image with a fresh one, keeping the same PID.
@@ -164,6 +185,79 @@ def _maybe_reexec(db_path, streak, now=None):
     _save_respawns(path, respawns)
 
 
+def _resume_candidate(store, now=None):
+    """The session a restarting daemon may re-attach to, or None. Recency only —
+    whether it's really the same walk is decided later, by _continues_session. A
+    negative age (clock stepped backwards) reads as out of window, not infinite."""
+    now = time.time() if now is None else now
+    latest = store.get_latest_session()
+    if not latest or not latest["end_ts"]:
+        return None
+    if not 0 <= now - latest["end_ts"] < SESSION_RESUME_WINDOW_S:
+        return None
+    return latest
+
+
+def _continues_session(session, status):
+    """Whether this first status after a restart is the same pad run the session
+    was recording.
+
+    Sessions carry no open/closed flag, so recency alone can't answer this — and
+    guessing wrong corrupts history, because resuming overwrites the old row.
+    Two independent things have to hold.
+
+    First, the run must be old enough to be the one we were already recording.
+    The pad's elapsed timer dates the current run: `status.ts - elapsed_s` is
+    when it began. If that lands after the last packet we stored, the old run
+    ended and this is a new one — the case counter comparisons can't see on
+    their own, because a short session is easily out-walked by a fresh run (a
+    finished 20m/25s walk vs. a new run already at 40m/30s).
+
+    Second, the counters must not have gone backwards. Within a run they climb
+    monotonically and they zero when it ends, so a reading at or past where the
+    session left off is consistent with the same walk continuing.
+
+    Both tests are deliberately biased toward *declining*. A wrong "no" opens a
+    second session and double-counts a walk; a wrong "yes" overwrites a walk
+    that already happened. Hence RUN_START_MARGIN_S treating barely-started runs
+    as unresumable, and hence requiring all three counters rather than distance
+    alone — a regressed steps or elapsed counter costs us a duplicate session,
+    which is the cheaper mistake.
+    """
+    if status.ts - status.elapsed_s > session["end_ts"] - RUN_START_MARGIN_S:
+        return False
+    return (status.distance_m >= session["distance_m"] + session["origin_distance"]
+            and status.steps >= session["steps"] + session["origin_steps"]
+            and status.elapsed_s >= session["duration_s"] + session["origin_elapsed"])
+
+
+def _make_resume_gate(store, recorder, now=None):
+    """Build the check that runs on each status until the resume question is
+    settled. On the first packet after a restart it re-attaches the recorder to
+    the interrupted session if the pad's counters say the walk continued;
+    otherwise it stands aside and lets a fresh session open. Returns True only
+    on an actual resume, so callers (and tests) can observe the decision."""
+    pending = _resume_candidate(store, now)
+
+    def gate(status):
+        nonlocal pending
+        if pending is None:
+            return False
+        session, pending = pending, None
+        # Re-check the bound against the packet, not just against startup: if
+        # the pad stayed away for hours the candidate went stale while we sat
+        # here holding it, and a long enough new run could otherwise satisfy the
+        # continuity test and overwrite the old session.
+        if not 0 <= status.ts - session["end_ts"] < SESSION_RESUME_WINDOW_S:
+            return False
+        if not _continues_session(session, status):
+            return False
+        recorder.resume(session)
+        return True
+
+    return gate
+
+
 def default_db_path():
     base = os.path.expanduser("~/.local/share/walkingpad")
     os.makedirs(base, exist_ok=True)
@@ -244,11 +338,11 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None,
     client = PadClient()
     state = DaemonState(store, pad_client=client)
 
-    # If the daemon restarted mid-walk, resume the still-open session so the
-    # ongoing run isn't recorded twice.
-    latest = store.get_latest_session()
-    if latest and latest["end_ts"] and (time.time() - latest["end_ts"] < 30):
-        recorder.resume(latest)
+    # If the daemon restarted mid-walk — a re-exec for a wedged scanner, a
+    # kickstart, a crash — re-attach to the interrupted session so the ongoing
+    # run isn't recorded twice. Deferred until the pad tells us whether the walk
+    # actually continued; see _make_resume_gate.
+    resume_gate = _make_resume_gate(store, recorder)
 
     ledger_path = _respawn_ledger_path(db_path)
 
@@ -263,6 +357,7 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None,
         # transient unlink failure doesn't leave stale throttle history behind.
         if not got_data["seen"] and _clear_respawns(ledger_path):
             got_data["seen"] = True
+        resume_gate(status)  # must precede handle() to catch this same packet
         state.record_status(status)
         recorder.handle(status)
 

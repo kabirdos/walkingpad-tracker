@@ -34,6 +34,13 @@ CONNECT_TIMEOUT_S = 20.0
 # connect timeout, so cap it tightly — we're throwing away the client anyway.
 DISCONNECT_TIMEOUT_S = 5.0
 
+# How long each BLE discovery sweep runs, and how long a connected-but-silent
+# link is tolerated before we treat it as lost. Named (rather than inlined) so
+# the daemon can size its session-resume window against how long it actually
+# takes to notice a wedged scanner — see SESSION_RESUME_WINDOW_S in cli.py.
+SCAN_TIMEOUT_S = 8.0
+STALE_TIMEOUT_S = 15.0
+
 
 def kmh_to_pad_speed(kmh):
     """Convert km/h to the pad's 0.1 km/h integer units, clamped to 0.5-6.0."""
@@ -75,7 +82,7 @@ class PadClient:
             self._callback(cur_status_to_padstatus(record, time.time()))
 
     async def discover_address(self):
-        devices = await BleakScanner.discover(timeout=8.0)
+        devices = await BleakScanner.discover(timeout=SCAN_TIMEOUT_S)
         for d in devices:
             if not d.name:
                 continue
@@ -134,7 +141,7 @@ class PadClient:
     async def set_speed(self, kmh):
         await self.ctrl.change_speed(kmh_to_pad_speed(kmh))
 
-    async def capture(self, callback, interval=0.8, stale_timeout=15.0):
+    async def capture(self, callback, interval=0.8, stale_timeout=STALE_TIMEOUT_S):
         """Poll the pad forever, pushing PadStatus to callback.
 
         Raises on connection loss — or when no data has arrived for
