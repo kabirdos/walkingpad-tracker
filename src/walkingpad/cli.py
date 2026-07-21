@@ -13,45 +13,72 @@ from walkingpad.pad_client import PadClient, PadNotFoundError
 MI = 0.621371  # km -> miles, km/h -> mph
 
 # If the BLE scanner returns no matching device this many times in a row,
-# consider exiting to let launchd respawn us with fresh CoreBluetooth state. The
+# consider replacing our process image to get fresh CoreBluetooth state. The
 # macOS CoreBluetooth daemon caches discovery state per-process; once a
 # Python-side BleakScanner falls into the "always empty" pathology it does not
 # recover on its own. With the 1→2→4→8→16→30 backoff this triggers after ~60s of
 # empty scans. A genuinely powered-off pad produces the same empty scans, so the
-# actual exit is gated by the respawn throttle below — hitting this threshold is
-# necessary but not sufficient to respawn.
+# actual re-exec is gated by the throttle below — hitting this threshold is
+# necessary but not sufficient.
 NOT_FOUND_RESPAWN_THRESHOLD = 6
 
-# Exit-for-respawn is a workaround for a *stuck* CoreBluetooth cache, which a
-# fresh process clears in a respawn or two. But a pad that's simply powered off
-# produces the exact same endless empty scans, and exiting unconditionally every
-# ~60s crash-loops the daemon: launchd's KeepAlive respawns it hundreds of times
-# until it classifies the job as "inefficient" (`pended nondemand spawn`) and
-# stops respawning it for good — leaving the menubar and dashboard dead
-# (observed 900+ runs). So we throttle: a persisted ledger of recent respawns
-# lets us allow a few quick respawns to clear a genuine cache wedge, then fall
-# back to at most one respawn per SLOW interval while the pad stays absent. A
-# 30-minute run reads to launchd as a well-behaved long-running job, never a
-# cycling one, so the job is never pended. Receiving real status data from the
-# pad clears the ledger, restoring fast recovery for the next real wedge.
-FAST_RESPAWN_LIMIT = 3           # quick respawns allowed to clear a stuck cache
-SLOW_RESPAWN_INTERVAL_S = 1800   # afterwards, respawn at most this often (30m)
+# Clearing a stuck CoreBluetooth cache needs a fresh process image, which we get
+# by re-execing ourselves in place. We used to exit(75) and let launchd's
+# KeepAlive respawn us, but that is no longer safe on this machine: during the
+# crash-loop era (900+ runs) launchd permanently classified the job as
+# inefficient — `launchctl print gui/$(id -u)/com.walkingpad.daemon` reports
+# `pended nondemand spawn = inefficient` — and now declines to respawn it at
+# all. On 2026-07-21 a single, correctly-throttled exit left the daemon dead for
+# 4.5 hours (menubar and dashboard dead with it) until a manual `launchctl
+# kickstart`. The verdict is sticky for the life of the job, so any strategy
+# that hands control back to launchd is a coin flip we lose.
+#
+# We still throttle, for a different reason than before: a powered-off pad
+# produces the same endless empty scans as a wedged cache, and re-execing every
+# ~60s forever would spam the log and drop the HTTP API repeatedly for no gain.
+# A persisted ledger allows a few quick re-execs to clear a genuine wedge, then
+# falls back to at most one per SLOW interval while the pad stays absent.
+# Receiving real status data clears the ledger, restoring fast recovery for the
+# next real wedge.
+FAST_RESPAWN_LIMIT = 3           # quick re-execs allowed to clear a stuck cache
+SLOW_RESPAWN_INTERVAL_S = 1800   # afterwards, re-exec at most this often (30m)
 RESPAWN_STALE_S = 24 * 3600      # drop ledger entries older than a day (hygiene)
 
 
-def _force_respawn(streak):
-    # os._exit, not sys.exit. SystemExit propagates through asyncio.gather in
-    # theory, but in practice uvicorn's lifespan handler caught it and the
-    # process stayed alive for days holding port 8787 but answering nothing —
-    # the worst possible state because the watchdog appeared to fire (the
-    # message even printed) and launchd had no signal to respawn. os._exit
-    # bypasses every Python-level handler and immediately terminates with the
-    # given code; we're explicitly trying to be unkillable-by-finally.
-    print(f"scanner returned empty {streak}x; exiting for launchd respawn "
-          f"(fresh CoreBluetooth state)", flush=True)
+def _reexec_self(streak):
+    """Replace this process image with a fresh one, keeping the same PID.
+
+    execv is what makes this safe where exit-for-respawn was not: launchd sees a
+    process that never exited, so its respawn machinery — and the sticky
+    "inefficient" verdict described above — is never consulted. The image itself
+    is replaced wholesale, which is what actually clears the wedged Bluetooth
+    state: the old bluetoothd XPC connection dies with the old image and the new
+    one connects fresh. Python sockets are non-inheritable (PEP 446), so
+    uvicorn's listener on 8787 is closed by the exec and the new image rebinds
+    it.
+
+    Re-exec via `-m walkingpad.cli` rather than sys.argv[0] so we normalize both
+    launch styles (`python -m walkingpad.cli ...` from the plist and the
+    `walkingpad` console script) to the same command line.
+
+    Does not return on success. Returns on failure, in which case we are still
+    the old, possibly-wedged process and the caller should keep scanning: a live
+    daemon serving stale scans beats no daemon at all, which is exactly the hole
+    exit(75) used to fall into.
+    """
+    if not sys.executable:
+        print(f"scanner returned empty {streak}x; no interpreter path to "
+              f"re-exec, scanning on instead", flush=True)
+        return
+    print(f"scanner returned empty {streak}x; re-execing in place for fresh "
+          f"CoreBluetooth state (pid {os.getpid()} retained)", flush=True)
     sys.stdout.flush()
     sys.stderr.flush()
-    os._exit(75)  # EX_TEMPFAIL — KeepAlive=true will respawn us
+    try:
+        os.execv(sys.executable, [sys.executable, "-m", "walkingpad.cli",
+                                  *sys.argv[1:]])
+    except OSError as e:
+        print(f"re-exec failed ({e}); scanning on in place", flush=True)
 
 
 def _respawn_ledger_path(db_path):
@@ -75,9 +102,8 @@ def _load_respawns(path, now):
 
 def _save_respawns(path, respawns):
     """Persist the ledger atomically. Returns True on success. The caller must
-    NOT respawn on a False return: an unrecorded exit defeats the throttle
-    entirely (unlimited ~60s exits → launchd pends the job), which is the exact
-    failure this file exists to prevent."""
+    NOT re-exec on a False return: an unrecorded re-exec defeats the throttle
+    entirely, leaving a powered-off pad to churn the process every ~60s."""
     try:
         tmp = f"{path}.tmp"
         with open(tmp, "w") as f:
@@ -103,33 +129,39 @@ def _clear_respawns(path):
 
 
 def _respawn_allowed(respawns, now):
-    """Decide whether to exit for a respawn given prior respawns since the pad
-    last delivered data. Fast for the first few (clear a stuck cache), then at
-    most one per SLOW_RESPAWN_INTERVAL_S so a powered-off pad can't crash-loop."""
+    """Decide whether to re-exec given prior re-execs since the pad last
+    delivered data. Fast for the first few (clear a stuck cache), then at most
+    one per SLOW_RESPAWN_INTERVAL_S so a powered-off pad can't churn us."""
     if len(respawns) < FAST_RESPAWN_LIMIT:
         return True
     return now - max(respawns) >= SLOW_RESPAWN_INTERVAL_S
 
 
-def _maybe_force_respawn(db_path, streak, now=None):
-    """Exit for a launchd respawn if the throttle allows it (never returns in
-    that case); otherwise log and return so the caller keeps scanning."""
+def _maybe_reexec(db_path, streak, now=None):
+    """Re-exec for fresh CoreBluetooth state if the throttle allows it (does not
+    return in that case); otherwise log and return so the caller keeps scanning."""
     now = time.time() if now is None else now
     path = _respawn_ledger_path(db_path)
     respawns = _load_respawns(path, now)
     if not _respawn_allowed(respawns, now):
-        print(f"scanner returned empty {streak}x; already respawned "
+        print(f"scanner returned empty {streak}x; already re-execed "
               f"{len(respawns)}x with no connection — pad appears powered off, "
-              f"scanning on instead of respawning", flush=True)
+              f"scanning on instead", flush=True)
         return
     respawns.append(now)
     if not _save_respawns(path, respawns):
-        # Can't record this respawn, so we can't throttle the next one. Refuse
-        # to exit rather than risk an untracked crash-loop; keep scanning.
+        # Can't record this re-exec, so we can't throttle the next one. Skip it
+        # rather than risk untracked churn; keep scanning.
         print(f"scanner returned empty {streak}x; could not persist respawn "
-              f"ledger at {path} — scanning on instead of respawning", flush=True)
+              f"ledger at {path} — scanning on instead", flush=True)
         return
-    _force_respawn(streak)
+    _reexec_self(streak)
+    # Only reachable if the exec failed — a successful one never returns. Give
+    # the budget back: a re-exec that didn't happen must not count toward the
+    # throttle, or three failed execs would push a genuinely wedged scanner into
+    # the 30-minute slow path with nothing to show for it.
+    respawns.pop()
+    _save_respawns(path, respawns)
 
 
 def default_db_path():
@@ -179,9 +211,9 @@ async def run_capture(db_path, address=None):
             not_found_streak += 1
             await client.disconnect()
             if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
-                # Exits for a respawn only if the throttle allows it; otherwise
-                # we keep scanning (pad is powered off, not a stuck cache).
-                _maybe_force_respawn(db_path, not_found_streak)
+                # Re-execs only if the throttle allows it; otherwise we keep
+                # scanning (pad is powered off, not a stuck cache).
+                _maybe_reexec(db_path, not_found_streak)
                 not_found_streak = 0
             print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
             await asyncio.sleep(backoff)
@@ -255,9 +287,9 @@ async def run_serve(db_path, host="0.0.0.0", port=8787, address=None,
                 not_found_streak += 1
                 await client.disconnect()
                 if not_found_streak >= NOT_FOUND_RESPAWN_THRESHOLD:
-                    # Exits for a respawn only if the throttle allows it;
-                    # otherwise keep scanning (pad off, not a stuck cache).
-                    _maybe_force_respawn(db_path, not_found_streak)
+                    # Re-execs only if the throttle allows it; otherwise keep
+                    # scanning (pad off, not a stuck cache).
+                    _maybe_reexec(db_path, not_found_streak)
                     not_found_streak = 0
                 print(f"connection lost ({e}); retrying in {backoff}s", flush=True)
                 await asyncio.sleep(backoff)
