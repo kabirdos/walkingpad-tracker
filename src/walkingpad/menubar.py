@@ -34,7 +34,7 @@ class WalkingPadBar(rumps.App):
         self.summary_items = [rumps.MenuItem(t) for t in summary_lines(None)]
         speed_menu = ("Speed", [
             rumps.MenuItem(f"{s:.1f} mph", callback=self._make_speed(s))
-            for s in (1.4, 1.6, 1.8, 2.0, 2.2, 2.4)
+            for s in (x / 10 for x in range(14, 25))  # 1.4 .. 2.4 in 0.1 steps
         ])
         self.menu = [
             *self.summary_items,
